@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -9,24 +9,24 @@ import {
   Pressable,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import Colors from "../../src/constants/colors";
 import { type MockPost } from "../../src/constants/mock-data";
 import PostCard from "../../src/components/PostCard";
 import { supabase } from "../../src/lib/supabase";
 
-async function fetchFeedPosts(): Promise<MockPost[]> {
+async function fetchCurrentUserId(): Promise<string | null> {
   const { data: { session } } = await supabase.auth.getSession();
-  if (!session) return [];
-
+  if (!session) return null;
   const { data: appUser } = await supabase
     .from("User")
     .select("id")
     .eq("supabaseId", session.user.id)
     .single();
+  return (appUser as any)?.id ?? null;
+}
 
-  const currentUserId = (appUser as any)?.id ?? null;
-
+async function fetchFeedPosts(currentUserId: string | null): Promise<MockPost[]> {
   const { data, error } = await supabase
     .from("Post")
     .select(`
@@ -71,12 +71,15 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [posts, setPosts] = useState<MockPost[]>([]);
   const [loading, setLoading] = useState(true);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
       setLoading(true);
-      const result = await fetchFeedPosts();
+      const uid = await fetchCurrentUserId();
+      if (!cancelled) setCurrentUserId(uid);
+      const result = await fetchFeedPosts(uid);
       if (!cancelled) { setPosts(result); setLoading(false); }
     }
     load();
@@ -85,10 +88,16 @@ export default function HomeScreen() {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    const result = await fetchFeedPosts();
+    const result = await fetchFeedPosts(currentUserId);
     setPosts(result);
     setRefreshing(false);
-  }, []);
+  }, [currentUserId]);
+
+  // Re-sync like states when navigating back to the feed
+  useFocusEffect(useCallback(() => {
+    if (posts.length === 0) return;
+    fetchFeedPosts(currentUserId).then((updated) => setPosts(updated));
+  }, [currentUserId]));
 
   const renderHeader = () => (
     <View style={styles.headerContainer}>
@@ -103,7 +112,7 @@ export default function HomeScreen() {
   );
 
   const renderPost = ({ item }: { item: MockPost }) => (
-    <PostCard post={item} />
+    <PostCard post={item} currentUserId={currentUserId} />
   );
 
   const renderEmpty = () => (

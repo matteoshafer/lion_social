@@ -220,15 +220,15 @@ export default function ProfileScreen() {
               <Text style={styles.statLabel}>Posts</Text>
             </View>
             <View style={styles.statDivider} />
-            <View style={styles.statItem}>
+            <Pressable style={styles.statItem} onPress={() => router.push(`/follow-list/${currentUser.id}?type=followers`)}>
               <Text style={styles.statValue}>{formatCount(currentUser.followersCount)}</Text>
               <Text style={styles.statLabel}>Followers</Text>
-            </View>
+            </Pressable>
             <View style={styles.statDivider} />
-            <View style={styles.statItem}>
+            <Pressable style={styles.statItem} onPress={() => router.push(`/follow-list/${currentUser.id}?type=following`)}>
               <Text style={styles.statValue}>{formatCount(currentUser.followingCount)}</Text>
               <Text style={styles.statLabel}>Following</Text>
-            </View>
+            </Pressable>
           </View>
 
           <View style={styles.actionRow}>
