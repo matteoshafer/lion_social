@@ -21,7 +21,7 @@ async function fetchList(userId: string, type: "followers" | "following"): Promi
     // People who follow userId → Follow.followerId
     const { data, error } = await supabase
       .from("Follow")
-      .select("follower:followerId (id, username, displayName, avatarUrl)")
+      .select("follower:User!followerId (id, username, displayName, avatarUrl)")
       .eq("followingId", userId)
       .order("createdAt", { ascending: false });
     if (error || !data) return [];
@@ -35,7 +35,7 @@ async function fetchList(userId: string, type: "followers" | "following"): Promi
     // People userId follows → Follow.followingId
     const { data, error } = await supabase
       .from("Follow")
-      .select("following:followingId (id, username, displayName, avatarUrl)")
+      .select("following:User!followingId (id, username, displayName, avatarUrl)")
       .eq("followerId", userId)
       .order("createdAt", { ascending: false });
     if (error || !data) return [];
