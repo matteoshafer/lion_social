@@ -98,13 +98,12 @@ export default function PostCard({ post, currentUserId }: PostCardProps) {
   };
 
   const handleShare = async () => {
-    const postUrl = `gains://post/${post.id}`;
+    const downloadUrl = "https://testflight.apple.com/join/ArPDp7sU";
     const excerpt = post.caption.slice(0, 100) + (post.caption.length > 100 ? "…" : "");
     try {
       await Share.share({
-        // message is shown on Android (no separate url field); on iOS both are used
-        message: `Check out this post on Gains!\n\n"${excerpt}"\n\n— @${post.user.username}\n${postUrl}`,
-        url: postUrl, // iOS only: shown in share sheet + enables "Copy Link" action
+        message: `Check out this post on Gains!\n\n"${excerpt}"\n\n— @${post.user.username}\n\nDownload Gains: ${downloadUrl}`,
+        url: downloadUrl,
         title: `@${post.user.username} on Gains`,
       });
     } catch {}
