@@ -8,7 +8,9 @@ import {
   Dimensions,
   Animated,
   Share,
+  Platform,
 } from "react-native";
+import * as FileSystem from "expo-file-system";
 import { useRouter } from "expo-router";
 import Colors from "../constants/colors";
 import { supabase } from "../lib/supabase";
@@ -98,14 +100,19 @@ export default function PostCard({ post, currentUserId }: PostCardProps) {
   };
 
   const handleShare = async () => {
-    const downloadUrl = "https://testflight.apple.com/join/ArPDp7sU";
+    const appUrl = "https://testflight.apple.com/join/ArPDp7sU";
     const excerpt = post.caption.slice(0, 100) + (post.caption.length > 100 ? "…" : "");
+    const text = `Check out this post on Gains!\n\n"${excerpt}"\n\n— @${post.user.username}\n\nDownload Gains 👇\n${appUrl}`;
     try {
-      await Share.share({
-        message: `Check out this post on Gains!\n\n"${excerpt}"\n\n— @${post.user.username}\n\nDownload Gains: ${downloadUrl}`,
-        url: downloadUrl,
-        title: `@${post.user.username} on Gains`,
-      });
+      // On iOS: download the image and share it as a file so it appears in the share sheet
+      if (post.imageUrl && Platform.OS === "ios") {
+        const ext = post.imageUrl.split("?")[0].split(".").pop() ?? "jpg";
+        const localUri = `${FileSystem.cacheDirectory}share_${post.id}.${ext}`;
+        await FileSystem.downloadAsync(post.imageUrl, localUri);
+        await Share.share({ message: text, url: localUri });
+      } else {
+        await Share.share({ message: text, url: appUrl });
+      }
     } catch {}
   };
 
