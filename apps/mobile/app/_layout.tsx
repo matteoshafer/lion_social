@@ -29,12 +29,11 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (session === undefined) return;
     const inAuthGroup = segments[0] === "(auth)";
-    const inCallback = segments[0] === "auth" && segments[1] === "callback";
-    if (!session && !inAuthGroup && !inCallback) {
-      router.replace("/(auth)/sign-in");
-    } else if (session && inAuthGroup) {
+    // Redirect authenticated users away from auth screens
+    if (session && inAuthGroup) {
       router.replace("/(tabs)");
     }
+    // Unauthenticated users can browse freely — tab layout shows sign-in prompts for gated screens
   }, [session, segments]);
 
   if (session === undefined) {

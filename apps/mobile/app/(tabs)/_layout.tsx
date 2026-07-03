@@ -1,7 +1,10 @@
+import { useState, useEffect } from "react";
 import { Tabs } from "expo-router";
 import { View, Text, StyleSheet, Platform } from "react-native";
 import Colors from "../../src/constants/colors";
 import { useNotifications } from "../../src/hooks/use-notifications";
+import { supabase } from "../../src/lib/supabase";
+import SignInPromptModal from "../../src/components/SignInPromptModal";
 
 /**
  * Custom tab bar icon with label
@@ -67,8 +70,32 @@ function TabIcon({
 
 export default function TabLayout() {
   const { unreadCount } = useNotifications();
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+  const [showSignInModal, setShowSignInModal] = useState(false);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      const authed = !!session;
+      setIsAuthenticated(authed);
+      // Show welcome sign-in prompt 2s after open if not logged in
+      if (!authed) setTimeout(() => setShowSignInModal(true), 2000);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setIsAuthenticated(!!session);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const requireAuth = (e: { preventDefault: () => void }) => {
+    if (isAuthenticated === false) {
+      e.preventDefault();
+      setShowSignInModal(true);
+    }
+  };
 
   return (
+    <>
+    <SignInPromptModal visible={showSignInModal} onClose={() => setShowSignInModal(false)} />
     <Tabs
       screenOptions={{
         headerShown: false,
@@ -119,6 +146,7 @@ export default function TabLayout() {
             <TabIcon icon="🔔" label="Alerts" focused={focused} badge={unreadCount} />
           ),
         }}
+        listeners={{ tabPress: requireAuth }}
       />
       <Tabs.Screen
         name="profile"
@@ -128,8 +156,10 @@ export default function TabLayout() {
             <TabIcon icon="👤" label="Profile" focused={focused} />
           ),
         }}
+        listeners={{ tabPress: requireAuth }}
       />
     </Tabs>
+    </>
   );
 }
 
