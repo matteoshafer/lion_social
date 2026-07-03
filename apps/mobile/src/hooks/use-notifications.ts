@@ -96,7 +96,7 @@ export function useNotifications() {
     });
   }, [fetchNotifications]);
 
-  // Realtime: re-fetch on INSERT so the list and badge stay in sync
+  // Realtime: re-fetch on any change (INSERT/UPDATE/DELETE) so the list and badge stay in sync
   useEffect(() => {
     if (!appUserId) return;
 
@@ -105,7 +105,7 @@ export function useNotifications() {
       .on(
         "postgres_changes",
         {
-          event: "INSERT",
+          event: "*",
           schema: "public",
           table: "Notification",
           filter: `userId=eq.${appUserId}`,
@@ -118,6 +118,19 @@ export function useNotifications() {
 
     return () => {
       supabase.removeChannel(channel);
+    };
+  }, [appUserId, fetchNotifications]);
+
+  // Polling fallback: re-fetch every 30s in case realtime isn't delivering events
+  useEffect(() => {
+    if (!appUserId) return;
+
+    const interval = setInterval(() => {
+      fetchNotifications(appUserId);
+    }, 30000);
+
+    return () => {
+      clearInterval(interval);
     };
   }, [appUserId, fetchNotifications]);
 

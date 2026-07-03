@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -11,18 +11,28 @@ import {
   RefreshControl,
   ActivityIndicator,
   StyleSheet,
+  Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
 import Colors, { PostTypeColors } from "../../src/constants/colors";
 import { CATEGORIES, type MockPost } from "../../src/constants/mock-data";
 import { supabase } from "../../src/lib/supabase";
+import Avatar from "../../src/components/Avatar";
+
+interface UserSearchResult {
+  id: string;
+  username: string;
+  displayName: string;
+  avatarUrl: string | null;
+}
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const GRID_GAP = 2;
 const GRID_COLUMNS = 3;
 const GRID_ITEM_SIZE = (SCREEN_WIDTH - GRID_GAP * (GRID_COLUMNS - 1)) / GRID_COLUMNS;
 
-async function fetchExplorePosts(): Promise<MockPost[]> {
+async function fetchExplorePosts(currentUserId?: string | null): Promise<MockPost[]> {
   const { data, error } = await supabase
     .from("Post")
     .select(`
@@ -53,37 +63,104 @@ async function fetchExplorePosts(): Promise<MockPost[]> {
     type: p.type as MockPost["type"],
     caption: p.caption,
     imageUrl: p.imageUrl ?? null,
-    likesCount: p.Like.length,
-    commentsCount: p.Comment.length,
-    isLiked: false,
+    likesCount: (p.Like as any[]).length,
+    commentsCount: (p.Comment as any[]).length,
+    isLiked: currentUserId ? (p.Like as any[]).some((l: any) => l.userId === currentUserId) : false,
     createdAt: p.createdAt,
   }));
 }
 
 export default function ExploreScreen() {
+  const router = useRouter();
   const [searchQuery, setSearchQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [posts, setPosts] = useState<MockPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [appUserId, setAppUserId] = useState<string | null>(null);
+  const [userResults, setUserResults] = useState<UserSearchResult[]>([]);
+  const lastTapRef = useRef<Map<string, number>>(new Map());
+
+  // Live user search: debounce 300ms, prefix-match on username
+  useEffect(() => {
+    if (!searchQuery) {
+      setUserResults([]);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      const { data, error } = await supabase
+        .from("User")
+        .select("id, username, displayName, avatarUrl")
+        .ilike("username", `${searchQuery}%`)
+        .limit(8);
+      if (!cancelled) {
+        setUserResults(error || !data ? [] : (data as UserSearchResult[]));
+      }
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [searchQuery]);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (!session) return;
+      const { data: appUser } = await supabase.from("User").select("id").eq("supabaseId", session.user.id).single();
+      if (appUser) setAppUserId((appUser as any).id);
+    });
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
       setLoading(true);
-      const result = await fetchExplorePosts();
+      const result = await fetchExplorePosts(appUserId);
       if (!cancelled) { setPosts(result); setLoading(false); }
     }
     load();
     return () => { cancelled = true; };
-  }, []);
+  }, [appUserId]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    const result = await fetchExplorePosts();
+    const result = await fetchExplorePosts(appUserId);
     setPosts(result);
     setRefreshing(false);
-  }, []);
+  }, [appUserId]);
+
+  const handleGridTap = useCallback((item: MockPost) => {
+    const now = Date.now();
+    const last = lastTapRef.current.get(item.id) ?? 0;
+    if (now - last < 300) {
+      // Double-tap: like
+      lastTapRef.current.set(item.id, 0);
+      if (!appUserId) return;
+      const isLiked = item.isLiked;
+      setPosts((prev) => prev.map((p) => p.id === item.id
+        ? { ...p, isLiked: !isLiked, likesCount: p.likesCount + (isLiked ? -1 : 1) }
+        : p
+      ));
+      if (isLiked) {
+        supabase.from("Like").delete().eq("postId", item.id).eq("userId", appUserId)
+          .then(({ error }) => { if (error) { Alert.alert("Like error", error.message); setPosts((prev) => prev.map((p) => p.id === item.id ? { ...p, isLiked: true, likesCount: p.likesCount + 1 } : p)); } });
+      } else {
+        const now2 = new Date().toISOString();
+        supabase.from("Like").insert({ id: "c" + Math.random().toString(36).substring(2, 26), postId: item.id, userId: appUserId, createdAt: now2 })
+          .then(({ error }) => { if (error) { setPosts((prev) => prev.map((p) => p.id === item.id ? { ...p, isLiked: error.code === "23505" ? true : item.isLiked, likesCount: p.likesCount - 1 } : p)); } });
+      }
+    } else {
+      lastTapRef.current.set(item.id, now);
+      setTimeout(() => {
+        if (Date.now() - (lastTapRef.current.get(item.id) ?? 0) >= 300) {
+          router.push(`/post/${item.id}`);
+        }
+      }, 300);
+    }
+  }, [appUserId, router]);
 
   const filteredPosts = posts.filter((p) => {
     const matchesCategory = !activeCategory || p.type === activeCategory;
@@ -97,7 +174,7 @@ export default function ExploreScreen() {
   const trendingPosts = posts.slice(0, 3);
 
   const renderTrendingCard = ({ item }: { item: MockPost }) => (
-    <Pressable style={styles.trendingCard}>
+    <Pressable style={styles.trendingCard} onPress={() => handleGridTap(item)}>
       {item.imageUrl ? (
         <Image source={{ uri: item.imageUrl }} style={styles.trendingImage} resizeMode="cover" />
       ) : (
@@ -123,6 +200,7 @@ export default function ExploreScreen() {
         styles.gridItem,
         { marginRight: (index + 1) % GRID_COLUMNS === 0 ? 0 : GRID_GAP, marginBottom: GRID_GAP },
       ]}
+      onPress={() => handleGridTap(item)}
     >
       {item.imageUrl ? (
         <Image source={{ uri: item.imageUrl }} style={styles.gridImage} resizeMode="cover" />
@@ -187,6 +265,30 @@ export default function ExploreScreen() {
             )}
           </View>
         </View>
+
+        {/* People Section (live user search results) */}
+        {userResults.length > 0 && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>People</Text>
+            </View>
+            {userResults.map((user) => (
+              <Pressable
+                key={user.id}
+                style={styles.userRow}
+                onPress={() => router.push(`/user/${user.id}`)}
+              >
+                <Avatar uri={user.avatarUrl} name={user.displayName || user.username} size={44} />
+                <View style={styles.userRowInfo}>
+                  <Text style={styles.userRowUsername}>@{user.username}</Text>
+                  {!!user.displayName && (
+                    <Text style={styles.userRowDisplayName}>{user.displayName}</Text>
+                  )}
+                </View>
+              </Pressable>
+            ))}
+          </View>
+        )}
 
         {/* Trending Section */}
         {trendingPosts.length > 0 && (
@@ -260,7 +362,11 @@ export default function ExploreScreen() {
         {filteredPosts.length === 0 && !loading && (
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyIcon}>🔍</Text>
-            <Text style={styles.emptyTitle}>No posts found</Text>
+            <Text style={styles.emptyTitle}>
+              {searchQuery.length > 0 && userResults.length === 0
+                ? `No results found for "${searchQuery}"`
+                : "No posts found"}
+            </Text>
             <Text style={styles.emptySubtitle}>Try a different search or category</Text>
           </View>
         )}
@@ -320,6 +426,16 @@ const styles = StyleSheet.create({
   trendingCaption: { fontSize: 14, fontWeight: "600", color: Colors.white, lineHeight: 20 },
   trendingStats: { marginTop: 6 },
   trendingStatText: { fontSize: 12, color: Colors.grayLight },
+  userRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    gap: 12,
+  },
+  userRowInfo: { flex: 1 },
+  userRowUsername: { fontSize: 15, fontWeight: "600", color: Colors.white },
+  userRowDisplayName: { fontSize: 13, color: Colors.gray, marginTop: 1 },
   categoryContainer: { paddingHorizontal: 20, gap: 8 },
   categoryPill: {
     paddingHorizontal: 20, paddingVertical: 10, borderRadius: 24,
