@@ -19,6 +19,7 @@ import Colors, { PostTypeColors } from "../../src/constants/colors";
 import { CATEGORIES, type MockPost } from "../../src/constants/mock-data";
 import { supabase } from "../../src/lib/supabase";
 import Avatar from "../../src/components/Avatar";
+import { sharePost } from "../../src/lib/share-post";
 
 interface UserSearchResult {
   id: string;
@@ -211,7 +212,10 @@ export default function ExploreScreen() {
       )}
       <View style={styles.gridOverlay}>
         <View style={styles.gridStats}>
-          <Text style={styles.gridStatText}>{item.likesCount}</Text>
+          <Text style={styles.gridStatText}>♥ {item.likesCount}</Text>
+          <Pressable onPress={() => sharePost(item)} hitSlop={8}>
+            <Text style={[styles.gridStatText, { marginLeft: 6 }]}>↗</Text>
+          </Pressable>
         </View>
       </View>
     </Pressable>

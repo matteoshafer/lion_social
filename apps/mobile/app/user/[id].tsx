@@ -10,6 +10,7 @@ import { formatCount, type MockPost, type MockUser } from "../../src/constants/m
 import Avatar from "../../src/components/Avatar";
 import PostTypeBadge from "../../src/components/PostTypeBadge";
 import { supabase } from "../../src/lib/supabase";
+import { sharePost } from "../../src/lib/share-post";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const GRID_GAP = 2;
@@ -308,6 +309,9 @@ export default function UserProfileScreen() {
                 </View>
                 <View style={styles.gridOverlay}>
                   <Text style={styles.gridStatText}>♥ {formatCount(post.likesCount)}</Text>
+                  <Pressable onPress={() => sharePost(post)} hitSlop={8}>
+                    <Text style={styles.gridStatText}>↗</Text>
+                  </Pressable>
                 </View>
               </Pressable>
             ))}
@@ -374,6 +378,7 @@ const styles = StyleSheet.create({
   gridBadge: { position: "absolute", top: 8, left: 8 },
   gridOverlay: {
     position: "absolute", bottom: 8, right: 8,
+    flexDirection: "row", alignItems: "center", gap: 8,
     backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10,
   },
   gridStatText: { fontSize: 11, color: Colors.white, fontWeight: "600" },

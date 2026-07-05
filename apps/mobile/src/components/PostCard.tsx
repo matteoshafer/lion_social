@@ -7,16 +7,14 @@ import {
   StyleSheet,
   Dimensions,
   Animated,
-  Share,
-  Platform,
 } from "react-native";
-import * as FileSystem from "expo-file-system";
 import { useRouter } from "expo-router";
 import Colors from "../constants/colors";
 import { supabase } from "../lib/supabase";
 import { type MockPost, getRelativeTime, formatCount } from "../constants/mock-data";
 import Avatar from "./Avatar";
 import PostTypeBadge from "./PostTypeBadge";
+import { sharePost } from "../lib/share-post";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -99,23 +97,7 @@ export default function PostCard({ post, currentUserId }: PostCardProps) {
     }
   };
 
-  const handleShare = async () => {
-    const appUrl = "https://testflight.apple.com/join/ArPDp7sU";
-    const excerpt = post.caption.slice(0, 100) + (post.caption.length > 100 ? "…" : "");
-    const text = `Check out this post on Gains!\n\n"${excerpt}"\n\n— @${post.user.username}\n\nDownload Gains: ${appUrl}`;
-    try {
-      if (post.imageUrl && Platform.OS === "ios") {
-        const ext = post.imageUrl.split("?")[0].split(".").pop() ?? "jpg";
-        const localUri = `${FileSystem.cacheDirectory}share_${post.id}.${ext}`;
-        await FileSystem.downloadAsync(post.imageUrl, localUri);
-        // url = local image file (shows image in share sheet); TestFlight link is in message
-        await Share.share({ message: text, url: localUri });
-      } else {
-        // url omitted — TestFlight link only appears once in message
-        await Share.share({ message: text });
-      }
-    } catch {}
-  };
+  const handleShare = () => sharePost(post);
 
   const showHeartBurst = () => {
     heartScale.setValue(0);
