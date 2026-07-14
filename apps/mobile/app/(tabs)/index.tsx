@@ -26,21 +26,21 @@ async function fetchCurrentUserId(): Promise<string | null> {
   return (appUser as any)?.id ?? null;
 }
 
-async function fetchFeedPosts(currentUserId: string | null): Promise<MockPost[]> {
-  const { data, error } = await supabase
-    .from("Post")
-    .select(`
-      id, caption, imageUrl, type, createdAt,
-      User!inner (id, username, avatarUrl),
-      Like (id, userId),
-      Comment (id)
-    `)
-    .order("createdAt", { ascending: false })
-    .limit(30);
+const POST_SELECT = `
+  id, caption, imageUrl, type, createdAt, userId,
+  User!inner (id, username, avatarUrl),
+  Like (id, userId),
+  Comment (id)
+`;
 
-  if (error || !data) return [];
+function scorePost(post: any): number {
+  const hoursOld = (Date.now() - new Date(post.createdAt).getTime()) / 36e5;
+  const recencyBoost = Math.max(0, (48 - hoursOld) / 48) * 10;
+  return post.Like.length * 2 + post.Comment.length * 3 + recencyBoost;
+}
 
-  return (data as any[]).map((p) => ({
+function mapPost(p: any, currentUserId: string | null): MockPost {
+  return {
     id: p.id,
     userId: p.User.id,
     user: {
@@ -63,7 +63,73 @@ async function fetchFeedPosts(currentUserId: string | null): Promise<MockPost[]>
       ? p.Like.some((l: any) => l.userId === currentUserId)
       : false,
     createdAt: p.createdAt,
-  }));
+  };
+}
+
+async function fetchFeedPosts(currentUserId: string | null): Promise<MockPost[]> {
+  // Guest: newest posts from everyone, no personalization
+  if (!currentUserId) {
+    const { data, error } = await supabase
+      .from("Post")
+      .select(POST_SELECT)
+      .order("createdAt", { ascending: false })
+      .limit(20);
+    if (error || !data) return [];
+    return (data as any[]).map((p) => mapPost(p, null));
+  }
+
+  // Step 1: who does the current user follow?
+  const { data: follows } = await supabase
+    .from("Follow")
+    .select("followingId")
+    .eq("followerId", currentUserId);
+  const followingIds = (follows ?? []).map((f: any) => f.followingId);
+
+  // Tier 1 — Following (weighted): last 50 posts from followed users,
+  // scored by engagement + recency, top 20
+  let tier1: any[] = [];
+  if (followingIds.length > 0) {
+    const { data } = await supabase
+      .from("Post")
+      .select(POST_SELECT)
+      .in("userId", followingIds)
+      .order("createdAt", { ascending: false })
+      .limit(50);
+    tier1 = ((data ?? []) as any[])
+      .map((p) => ({ post: p, score: scorePost(p) }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 20)
+      .map((x) => x.post);
+  }
+
+  // Tier 2 — Discovery: most-liked posts from the past 7 days,
+  // excluding followed users, self, and Tier 1 posts; top 10
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 36e5).toISOString();
+  const excludedUserIds = [currentUserId, ...followingIds];
+  const { data: discoveryData } = await supabase
+    .from("Post")
+    .select(POST_SELECT)
+    .gte("createdAt", sevenDaysAgo)
+    .not("userId", "in", `(${excludedUserIds.join(",")})`)
+    .order("createdAt", { ascending: false })
+    .limit(50);
+
+  const tier1Ids = new Set(tier1.map((p) => p.id));
+  const tier2 = ((discoveryData ?? []) as any[])
+    .filter((p) => !tier1Ids.has(p.id))
+    .sort((a, b) => b.Like.length - a.Like.length)
+    .slice(0, 10);
+
+  // Interleave: Tier 1 first, then Tier 2; dedupe by post ID
+  const seen = new Set<string>();
+  const combined: any[] = [];
+  for (const p of [...tier1, ...tier2]) {
+    if (seen.has(p.id)) continue;
+    seen.add(p.id);
+    combined.push(p);
+  }
+
+  return combined.slice(0, 30).map((p) => mapPost(p, currentUserId));
 }
 
 export default function HomeScreen() {
