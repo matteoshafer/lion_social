@@ -97,7 +97,7 @@ export default function HomeScreen() {
   useFocusEffect(useCallback(() => {
     if (posts.length === 0) return;
     fetchFeedPosts(currentUserId).then((updated) => setPosts(updated));
-  }, [currentUserId]));
+  }, [currentUserId, posts.length]));
 
   const renderHeader = () => (
     <View style={styles.headerContainer}>
@@ -143,6 +143,10 @@ export default function HomeScreen() {
         ListEmptyComponent={renderEmpty}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
+        removeClippedSubviews={true}
+        maxToRenderPerBatch={5}
+        windowSize={10}
+        initialNumToRender={5}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}

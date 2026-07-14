@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  Animated,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -19,6 +20,7 @@ import { getRelativeTime, formatCount } from "../../src/constants/mock-data";
 import Avatar from "../../src/components/Avatar";
 import PostTypeBadge from "../../src/components/PostTypeBadge";
 import { supabase } from "../../src/lib/supabase";
+import { sharePost } from "../../src/lib/share-post";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -54,10 +56,14 @@ export default function PostDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [commentText, setCommentText] = useState("");
   const [isLiked, setIsLiked] = useState(false);
+  const [isSaved, setIsSaved] = useState(false);
   const [likesCount, setLikesCount] = useState(0);
   const [localComments, setLocalComments] = useState<CommentItem[]>([]);
   const [appUserId, setAppUserId] = useState<string | null>(null);
   const [currentUsername, setCurrentUsername] = useState<string>("you");
+  const lastTapRef = useRef<number>(0);
+  const heartScale = useRef(new Animated.Value(0)).current;
+  const heartOpacity = useRef(new Animated.Value(0)).current;
 
   const fetchPost = useCallback(async () => {
     const { data, error } = await supabase
@@ -125,61 +131,101 @@ export default function PostDetailScreen() {
     );
   }, [id]);
 
-  // Record view + load data on mount
+  // Record view + load data on mount.
+  // Session is fetched once, then post data and like/save status load in parallel.
   useEffect(() => {
     supabase.rpc("increment_post_view", { post_id: id }).then(({ error }) => {
       if (error) console.error("[PostDetail] increment_post_view error:", error.message);
       else console.log("[PostDetail] View recorded for:", id);
     });
 
-    fetchPost();
     fetchComments();
-  }, [id, fetchPost, fetchComments]);
 
-  // Resolve current user + check existing like
-  useEffect(() => {
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (!session) return;
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        fetchPost();
+        return;
+      }
       const { data: appUser } = await supabase
         .from("User")
         .select("id, username")
         .eq("supabaseId", session.user.id)
         .single();
-      if (!appUser) return;
+      if (!appUser) {
+        fetchPost();
+        return;
+      }
       const uid = (appUser as any).id;
       setAppUserId(uid);
       setCurrentUsername((appUser as any).username);
-      const { data: like } = await supabase
-        .from("Like")
-        .select("id")
-        .eq("postId", id)
-        .eq("userId", uid)
-        .maybeSingle();
+      const [, { data: like }, { data: save }] = await Promise.all([
+        fetchPost(),
+        supabase.from("Like").select("id").eq("postId", id).eq("userId", uid).maybeSingle(),
+        supabase.from("Save").select("id").eq("postId", id).eq("userId", uid).maybeSingle(),
+      ]);
       setIsLiked(!!like);
-    });
-  }, [id]);
+      setIsSaved(!!save);
+    })();
+  }, [id, fetchPost, fetchComments]);
 
   const handleLike = useCallback(async () => {
+    if (!appUserId) return;
     const wasLiked = isLiked;
     setIsLiked(!wasLiked);
     setLikesCount((prev) => wasLiked ? prev - 1 : prev + 1);
 
-    if (!appUserId) return;
-
     if (wasLiked) {
-      const { error } = await supabase
-        .from("Like")
-        .delete()
-        .eq("postId", id)
-        .eq("userId", appUserId);
+      const { error } = await supabase.from("Like").delete().eq("postId", id).eq("userId", appUserId);
       if (error) { setIsLiked(wasLiked); setLikesCount((prev) => prev + 1); }
     } else {
-      const { error } = await supabase
-        .from("Like")
-        .insert({ postId: id, userId: appUserId });
-      if (error) { setIsLiked(wasLiked); setLikesCount((prev) => prev - 1); }
+      const now = new Date().toISOString();
+      const { error } = await supabase.from("Like").insert({ id: "c" + Math.random().toString(36).substring(2, 26), postId: id, userId: appUserId, createdAt: now });
+      if (error) {
+        if (error.code === "23505") { setIsLiked(true); setLikesCount((prev) => prev - 1); }
+        else { setIsLiked(wasLiked); setLikesCount((prev) => prev - 1); }
+      }
     }
   }, [isLiked, appUserId, id]);
+
+  const handleSave = useCallback(async () => {
+    if (!appUserId) return;
+    const wasSaved = isSaved;
+    setIsSaved(!wasSaved);
+    if (wasSaved) {
+      const { error } = await supabase.from("Save").delete().eq("postId", id).eq("userId", appUserId);
+      if (error) setIsSaved(wasSaved);
+    } else {
+      const now = new Date().toISOString();
+      const { error } = await supabase.from("Save").insert({ id: "c" + Math.random().toString(36).substring(2, 26), postId: id, userId: appUserId, createdAt: now, updatedAt: now });
+      if (error) setIsSaved(wasSaved);
+    }
+  }, [isSaved, appUserId, id]);
+
+  const handleShare = useCallback(() => {
+    if (post) sharePost(post);
+  }, [post]);
+
+  const showHeartBurst = useCallback(() => {
+    heartScale.setValue(0);
+    heartOpacity.setValue(1);
+    Animated.sequence([
+      Animated.spring(heartScale, { toValue: 1, useNativeDriver: true, speed: 20, bounciness: 12 }),
+      Animated.delay(400),
+      Animated.timing(heartOpacity, { toValue: 0, duration: 300, useNativeDriver: true }),
+    ]).start();
+  }, [heartScale, heartOpacity]);
+
+  const handleImageDoubleTap = useCallback(() => {
+    const now = Date.now();
+    if (now - lastTapRef.current < 300) {
+      lastTapRef.current = 0;
+      if (!isLiked) handleLike();
+      showHeartBurst();
+    } else {
+      lastTapRef.current = now;
+    }
+  }, [isLiked, handleLike, showHeartBurst]);
 
   const handleCommentSubmit = useCallback(async () => {
     const text = commentText.trim();
@@ -197,9 +243,10 @@ export default function PostDetailScreen() {
 
     if (!appUserId) return;
 
+    const now = new Date().toISOString();
     const { error } = await supabase
       .from("Comment")
-      .insert({ postId: id, userId: appUserId, content: text, updatedAt: new Date().toISOString() });
+      .insert({ id: "c" + Math.random().toString(36).substring(2, 26), postId: id, userId: appUserId, content: text, createdAt: now, updatedAt: now });
 
     if (error) {
       console.error("[PostDetail] Comment insert error:", error.message);
@@ -249,7 +296,7 @@ export default function PostDetailScreen() {
         >
           {/* Author row */}
           <View style={styles.authorRow}>
-            <View style={styles.authorInfo}>
+            <Pressable style={styles.authorInfo} onPress={() => router.push(`/user/${post.user.id}`)}>
               <Avatar uri={post.user.avatarUrl} name={post.user.displayName} size={44} />
               <View style={styles.authorText}>
                 <View style={styles.usernameRow}>
@@ -262,17 +309,22 @@ export default function PostDetailScreen() {
                 </View>
                 <Text style={styles.timestamp}>{getRelativeTime(post.createdAt)}</Text>
               </View>
-            </View>
+            </Pressable>
             <PostTypeBadge type={post.type} />
           </View>
 
           {/* Image */}
           {post.imageUrl && (
-            <Image
-              source={{ uri: post.imageUrl }}
-              style={styles.postImage}
-              resizeMode="cover"
-            />
+            <Pressable onPress={handleImageDoubleTap} style={styles.imageWrapper}>
+              <Image
+                source={{ uri: post.imageUrl }}
+                style={styles.postImage}
+                resizeMode="cover"
+              />
+              <Animated.Text style={[styles.heartBurst, { transform: [{ scale: heartScale }], opacity: heartOpacity }]}>
+                ♥
+              </Animated.Text>
+            </Pressable>
           )}
 
           {/* Caption */}
@@ -296,9 +348,14 @@ export default function PostDetailScreen() {
                 <Text style={styles.actionCount}>{formatCount(localComments.length)}</Text>
               </View>
             </View>
-            <Pressable style={styles.actionButton}>
-              <Text style={styles.actionIcon}>🔖</Text>
-            </Pressable>
+            <View style={styles.actionRight}>
+              <Pressable style={styles.actionButton} onPress={handleShare}>
+                <Text style={styles.actionIcon}>↗</Text>
+              </Pressable>
+              <Pressable style={[styles.actionButton, isSaved && styles.actionButtonSaved]} onPress={handleSave}>
+                <Text style={styles.actionIcon}>🔖</Text>
+              </Pressable>
+            </View>
           </View>
 
           {/* Divider */}
@@ -433,9 +490,20 @@ const styles = StyleSheet.create({
   },
 
   // Post content
+  imageWrapper: { position: "relative" },
   postImage: {
     width: SCREEN_WIDTH,
     height: SCREEN_WIDTH * 0.75,
+  },
+  heartBurst: {
+    position: "absolute",
+    alignSelf: "center",
+    top: "30%",
+    fontSize: 90,
+    color: "#EF4444",
+    textShadowColor: "rgba(0,0,0,0.4)",
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 8,
   },
   captionContainer: {
     paddingHorizontal: 16,
@@ -459,6 +527,16 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 20,
+  },
+  actionRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 16,
+  },
+  actionButtonSaved: {
+    backgroundColor: "rgba(250, 204, 21, 0.15)",
+    borderRadius: 8,
+    paddingHorizontal: 6,
   },
   actionButton: {
     flexDirection: "row",

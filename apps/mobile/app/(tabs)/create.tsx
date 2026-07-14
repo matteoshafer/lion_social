@@ -4,9 +4,71 @@ import {
   Alert, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import Colors, { PostTypeColors, PostTypeLabels } from "../../src/constants/colors";
 import { supabase } from "../../src/lib/supabase";
+
+const ALL_EXERCISES = [
+  "Arnold Press","Back Squat","Barbell Curl","Barbell Row","Battle Ropes","Bench Press",
+  "Box Jump","Bulgarian Split Squat","Cable Crunch","Cable Crossover","Cable Curl",
+  "Cable Flyes","Cable Row","Calf Raises","Chest Dips","Chest Fly","Chin-ups",
+  "Clean and Jerk","Cycling","Dead Bug","Deadlift","Decline Bench Press","Dips",
+  "Dumbbell Curl","Dumbbell Fly","Dumbbell Row","Dumbbell Shrug","Elliptical",
+  "Face Pulls","Front Raises","Front Squat","Goblet Squat","Good Mornings",
+  "Hack Squat","Hammer Curl","Hanging Leg Raise","Hip Thrust","Incline Bench Press",
+  "Incline Dumbbell Press","Jump Rope","Kettlebell Swing","Lat Pulldown","Lateral Raises",
+  "Leg Curl","Leg Extension","Leg Press","Leg Raises","Lunge","Machine Row",
+  "Meadows Row","Military Press","Mountain Climbers","Overhead Press","Overhead Tricep Extension",
+  "Pec Deck","Plank","Preacher Curl","Pull-ups","Push-ups","Rear Delt Flyes",
+  "Reverse Curl","Reverse Flyes","Romanian Deadlift","Rowing Machine","Running",
+  "Russian Twist","Seated Cable Row","Seated Dumbbell Press","Skull Crushers","Snatch",
+  "Squats","Stair Climber","Step-ups","Sumo Deadlift","Swimming","T-Bar Row",
+  "Tricep Dips","Tricep Kickback","Tricep Pushdowns","Upright Row","Walking Lunges",
+  "Weighted Dips","Weighted Pull-ups","Wide Grip Pull-ups","Zercher Squat",
+];
+
+const ALL_INGREDIENTS = [
+  "Almond Butter","Almonds","Asparagus","Avocado","Bacon","Baked Potato","Banana",
+  "Bell Pepper","Black Beans","Blueberries","Broccoli","Brown Rice","Brussels Sprouts",
+  "Butter","Cashews","Cauliflower","Cheddar Cheese","Chia Seeds","Chicken Breast",
+  "Chicken Thighs","Chickpeas","Coconut Oil","Cod","Cottage Cheese","Cucumber",
+  "Edamame","Egg Whites","Eggs","Feta Cheese","Flaxseed","Garlic","Greek Yogurt",
+  "Green Beans","Ground Beef","Ground Turkey","Hemp Seeds","Honey","Hummus",
+  "Kale","Kidney Beans","Lean Beef","Lemon","Lentils","Mozzarella","Oat Milk",
+  "Oatmeal","Olive Oil","Onion","Orange","Parmesan","Pasta","Peanut Butter",
+  "Peanuts","Pinto Beans","Protein Powder","Pumpkin Seeds","Quinoa","Raspberry",
+  "Salmon","Shrimp","Skim Milk","Soy Milk","Spinach","Steak","Strawberries",
+  "String Cheese","Sweet Potato","Tilapia","Tofu","Tuna","Turkey Breast",
+  "Walnuts","Whey Protein","White Rice","Whole Milk","Whole Wheat Bread",
+  "Whole Wheat Pasta","Wild Rice","Zucchini",
+];
+
+function AutoSuggest({ query, suggestions, onSelect }: { query: string; suggestions: string[]; onSelect: (s: string) => void }) {
+  if (!query.trim() || query.trim().length < 2) return null;
+  const filtered = suggestions
+    .filter((s) => s.toLowerCase().startsWith(query.toLowerCase()))
+    .slice(0, 5);
+  if (!filtered.length) return null;
+  return (
+    <View style={suggestStyles.container}>
+      {filtered.map((item) => (
+        <Pressable key={item} style={suggestStyles.item} onPress={() => onSelect(item)}>
+          <Text style={suggestStyles.text}>{item}</Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
+const suggestStyles = StyleSheet.create({
+  container: {
+    backgroundColor: Colors.dark700, borderRadius: 10, marginTop: -6,
+    marginBottom: 10, borderWidth: 1, borderColor: Colors.dark600, overflow: "hidden",
+  },
+  item: { paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 0.5, borderBottomColor: Colors.dark600 },
+  text: { fontSize: 14, color: Colors.white },
+});
 
 type PostType = "workout" | "meal" | "quote" | "story";
 
@@ -82,6 +144,7 @@ function buildMealCaption(mealName: string, ingredients: string[], macro: Macro,
 }
 
 export default function CreateScreen() {
+  const router = useRouter();
   const [selectedType, setSelectedType] = useState<PostType | null>(null);
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -90,6 +153,8 @@ export default function CreateScreen() {
   const [workoutTemplate, setWorkoutTemplate] = useState("");
   const [exercises, setExercises] = useState<Exercise[]>([{ name: "", sets: "", reps: "" }]);
   const [workoutNotes, setWorkoutNotes] = useState("");
+  const [focusedExercise, setFocusedExercise] = useState<number | null>(null);
+  const [focusedIngredient, setFocusedIngredient] = useState<number | null>(null);
 
   // Meal state
   const [mealName, setMealName] = useState("");
@@ -164,13 +229,11 @@ export default function CreateScreen() {
 
       if (error) { Alert.alert("Error", error.message); return; }
 
-      Alert.alert("Posted!", "Your post has been shared.", [{
-        text: "OK", onPress: () => {
-          setSelectedType(null); setImageUri(null); setCaption("");
-          setWorkoutTemplate(""); setExercises([{ name: "", sets: "", reps: "" }]); setWorkoutNotes("");
-          setMealName(""); setIngredients(["", ""]); setMacro({ calories: "", protein: "", carbs: "", fat: "" }); setMealNotes("");
-        }
-      }]);
+      // Reset form and navigate straight to the feed — no alert needed
+      setSelectedType(null); setImageUri(null); setCaption("");
+      setWorkoutTemplate(""); setExercises([{ name: "", sets: "", reps: "" }]); setWorkoutNotes("");
+      setMealName(""); setIngredients(["", ""]); setMacro({ calories: "", protein: "", carbs: "", fat: "" }); setMealNotes("");
+      router.replace("/(tabs)");
     } catch { Alert.alert("Error", "Something went wrong. Please try again."); }
     finally { setSubmitting(false); }
   };
@@ -228,37 +291,48 @@ export default function CreateScreen() {
               <View style={styles.section}>
                 <Text style={styles.sectionLabel}>EXERCISES</Text>
                 {exercises.map((ex, index) => (
-                  <View key={index} style={styles.exerciseRow}>
-                    <TextInput
-                      style={[styles.input, styles.exerciseName]}
-                      placeholder="Exercise name"
-                      placeholderTextColor={Colors.grayDark}
-                      value={ex.name}
-                      onChangeText={(v) => updateExercise(index, "name", v)}
-                      selectionColor={Colors.gold}
-                    />
-                    <TextInput
-                      style={[styles.input, styles.exerciseSmall]}
-                      placeholder="Sets"
-                      placeholderTextColor={Colors.grayDark}
-                      value={ex.sets}
-                      onChangeText={(v) => updateExercise(index, "sets", v)}
-                      keyboardType="numeric"
-                      selectionColor={Colors.gold}
-                    />
-                    <TextInput
-                      style={[styles.input, styles.exerciseSmall]}
-                      placeholder="Reps"
-                      placeholderTextColor={Colors.grayDark}
-                      value={ex.reps}
-                      onChangeText={(v) => updateExercise(index, "reps", v)}
-                      keyboardType="numeric"
-                      selectionColor={Colors.gold}
-                    />
-                    {exercises.length > 1 && (
-                      <Pressable onPress={() => removeExercise(index)} style={styles.removeBtn}>
-                        <Text style={styles.removeBtnText}>✕</Text>
-                      </Pressable>
+                  <View key={index} style={styles.exerciseWrapper}>
+                    <View style={styles.exerciseRow}>
+                      <TextInput
+                        style={[styles.input, styles.exerciseName]}
+                        placeholder="Exercise name"
+                        placeholderTextColor={Colors.grayDark}
+                        value={ex.name}
+                        onChangeText={(v) => updateExercise(index, "name", v)}
+                        onFocus={() => setFocusedExercise(index)}
+                        onBlur={() => setTimeout(() => setFocusedExercise(null), 150)}
+                        selectionColor={Colors.gold}
+                      />
+                      <TextInput
+                        style={[styles.input, styles.exerciseSmall]}
+                        placeholder="Sets"
+                        placeholderTextColor={Colors.grayDark}
+                        value={ex.sets}
+                        onChangeText={(v) => updateExercise(index, "sets", v)}
+                        keyboardType="numeric"
+                        selectionColor={Colors.gold}
+                      />
+                      <TextInput
+                        style={[styles.input, styles.exerciseSmall]}
+                        placeholder="Reps"
+                        placeholderTextColor={Colors.grayDark}
+                        value={ex.reps}
+                        onChangeText={(v) => updateExercise(index, "reps", v)}
+                        keyboardType="numeric"
+                        selectionColor={Colors.gold}
+                      />
+                      {exercises.length > 1 && (
+                        <Pressable onPress={() => removeExercise(index)} style={styles.removeBtn}>
+                          <Text style={styles.removeBtnText}>✕</Text>
+                        </Pressable>
+                      )}
+                    </View>
+                    {focusedExercise === index && (
+                      <AutoSuggest
+                        query={ex.name}
+                        suggestions={ALL_EXERCISES}
+                        onSelect={(s) => { updateExercise(index, "name", s); setFocusedExercise(null); }}
+                      />
                     )}
                   </View>
                 ))}
@@ -300,19 +374,30 @@ export default function CreateScreen() {
               <View style={styles.section}>
                 <Text style={styles.sectionLabel}>INGREDIENTS</Text>
                 {ingredients.map((ing, index) => (
-                  <View key={index} style={styles.ingredientRow}>
-                    <TextInput
-                      style={[styles.input, { flex: 1 }]}
-                      placeholder={`Ingredient ${index + 1}`}
-                      placeholderTextColor={Colors.grayDark}
-                      value={ing}
-                      onChangeText={(v) => updateIngredient(index, v)}
-                      selectionColor={Colors.gold}
-                    />
-                    {ingredients.length > 1 && (
-                      <Pressable onPress={() => removeIngredient(index)} style={styles.removeBtn}>
-                        <Text style={styles.removeBtnText}>✕</Text>
-                      </Pressable>
+                  <View key={index} style={styles.exerciseWrapper}>
+                    <View style={styles.ingredientRow}>
+                      <TextInput
+                        style={[styles.input, { flex: 1, marginBottom: 0 }]}
+                        placeholder={`Ingredient ${index + 1}`}
+                        placeholderTextColor={Colors.grayDark}
+                        value={ing}
+                        onChangeText={(v) => updateIngredient(index, v)}
+                        onFocus={() => setFocusedIngredient(index)}
+                        onBlur={() => setTimeout(() => setFocusedIngredient(null), 150)}
+                        selectionColor={Colors.gold}
+                      />
+                      {ingredients.length > 1 && (
+                        <Pressable onPress={() => removeIngredient(index)} style={styles.removeBtn}>
+                          <Text style={styles.removeBtnText}>✕</Text>
+                        </Pressable>
+                      )}
+                    </View>
+                    {focusedIngredient === index && (
+                      <AutoSuggest
+                        query={ing}
+                        suggestions={ALL_INGREDIENTS}
+                        onSelect={(s) => { updateIngredient(index, s); setFocusedIngredient(null); }}
+                      />
                     )}
                   </View>
                 ))}
@@ -452,8 +537,9 @@ const styles = StyleSheet.create({
   templatePillTextActive: { color: Colors.gold },
 
   input: { backgroundColor: Colors.dark800, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 14, fontSize: 15, color: Colors.white, borderWidth: 1, borderColor: Colors.dark700, marginBottom: 10 },
-  exerciseRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 2 },
-  exerciseName: { flex: 1, marginBottom: 0 },
+  exerciseWrapper: { marginBottom: 8 },
+  exerciseRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  exerciseName: { flex: 1, marginBottom: 0, flexShrink: 1 },
   exerciseSmall: { width: 60, marginBottom: 0, textAlign: "center" },
   removeBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: Colors.dark700, alignItems: "center", justifyContent: "center" },
   removeBtnText: { fontSize: 13, color: Colors.gray, fontWeight: "700" },
