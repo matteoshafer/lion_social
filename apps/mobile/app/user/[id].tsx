@@ -263,15 +263,23 @@ export default function UserProfileScreen() {
           </View>
 
           {!isOwnProfile && (
-            <Pressable
-              style={[styles.followButton, isFollowing && styles.followingButton]}
-              onPress={handleFollow}
-              disabled={followLoading}
-            >
-              <Text style={[styles.followButtonText, isFollowing && styles.followingButtonText]}>
-                {isFollowing ? "Following" : "Follow"}
-              </Text>
-            </Pressable>
+            <View style={styles.actionRow}>
+              <Pressable
+                style={[styles.followButton, isFollowing && styles.followingButton]}
+                onPress={handleFollow}
+                disabled={followLoading}
+              >
+                <Text style={[styles.followButtonText, isFollowing && styles.followingButtonText]}>
+                  {isFollowing ? "Following" : "Follow"}
+                </Text>
+              </Pressable>
+              <Pressable
+                style={styles.messageButton}
+                onPress={() => router.push(`/messages/${user.id}`)}
+              >
+                <Text style={styles.messageButtonText}>Message</Text>
+              </Pressable>
+            </View>
           )}
 
           {isOwnProfile && (
@@ -356,10 +364,17 @@ const styles = StyleSheet.create({
   statValue: { fontSize: 20, fontWeight: "800", color: Colors.white, marginBottom: 2 },
   statLabel: { fontSize: 12, fontWeight: "500", color: Colors.gray, textTransform: "uppercase", letterSpacing: 0.5 },
   statDivider: { width: 1, height: 32, backgroundColor: Colors.dark600 },
+  actionRow: { flexDirection: "row", width: "100%", gap: 10 },
   followButton: {
-    width: "100%", backgroundColor: Colors.gold,
+    flex: 1, backgroundColor: Colors.gold,
     borderRadius: 12, paddingVertical: 14, alignItems: "center",
   },
+  messageButton: {
+    flex: 1, backgroundColor: Colors.dark800,
+    borderRadius: 12, paddingVertical: 14, alignItems: "center",
+    borderWidth: 1, borderColor: Colors.gold,
+  },
+  messageButtonText: { fontSize: 15, fontWeight: "700", color: Colors.gold, letterSpacing: 0.5 },
   followButtonText: { fontSize: 15, fontWeight: "700", color: Colors.black, letterSpacing: 0.5 },
   followingButton: { backgroundColor: Colors.dark800, borderWidth: 1, borderColor: Colors.dark600 },
   followingButtonText: { color: Colors.white },

@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
+import { useFocusEffect } from "expo-router";
 import {
   View, Text, FlatList, Pressable, TextInput,
   RefreshControl, ActivityIndicator, StyleSheet,
@@ -160,13 +161,40 @@ export default function MessagesScreen() {
     setLoading(false);
   }, []);
 
+  // Reload every time the tab regains focus so unread badges stay accurate
+  // after reading a conversation.
+  useFocusEffect(
+    useCallback(() => {
+      if (currentUserId) {
+        loadAll(currentUserId);
+        return;
+      }
+      loadCurrentUser().then((id) => {
+        if (!id) { setLoading(false); return; }
+        setCurrentUserId(id);
+        loadAll(id);
+      });
+    }, [currentUserId, loadAll, loadCurrentUser])
+  );
+
+  // Realtime: refresh the inbox when a new message addressed to us arrives.
   useEffect(() => {
-    loadCurrentUser().then((id) => {
-      if (!id) { setLoading(false); return; }
-      setCurrentUserId(id);
-      loadAll(id);
-    });
-  }, []);
+    if (!currentUserId) return;
+    const channel = supabase
+      .channel(`inbox-${currentUserId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "Message",
+          filter: `recipientId=eq.${currentUserId}`,
+        },
+        () => { loadAll(currentUserId); }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [currentUserId, loadAll]);
 
   useEffect(() => {
     if (!searchQuery.trim() || !currentUserId) { setSearchResults([]); return; }

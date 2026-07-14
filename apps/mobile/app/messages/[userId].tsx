@@ -108,7 +108,9 @@ export default function MessageThreadScreen() {
         (payload) => {
           const msg = payload.new as Message;
           if (msg.senderId !== otherUserId) return;
-          setMessages((prev) => [...prev, msg]);
+          setMessages((prev) =>
+            prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]
+          );
           // Mark as read immediately
           supabase.from("Message").update({ read: true }).eq("id", msg.id);
         }
@@ -131,27 +133,30 @@ export default function MessageThreadScreen() {
     setText("");
     setSending(true);
 
-    const tempId = `temp-${Date.now()}`;
+    // Message.id has no DB-side default (Prisma cuid is client-generated),
+    // so we must supply an id explicitly or the insert fails.
+    const msgId = "msg" + Math.random().toString(36).substring(2, 26);
+    const now = new Date().toISOString();
     const tempMsg: Message = {
-      id: tempId,
+      id: msgId,
       senderId: currentUserId,
       content,
-      createdAt: new Date().toISOString(),
+      createdAt: now,
       read: false,
     };
     setMessages((prev) => [...prev, tempMsg]);
 
     const { data, error } = await supabase
       .from("Message")
-      .insert({ senderId: currentUserId, recipientId: otherUserId, content })
+      .insert({ id: msgId, senderId: currentUserId, recipientId: otherUserId, content, createdAt: now })
       .select("id, senderId, content, createdAt, read")
       .single();
 
     if (error) {
-      setMessages((prev) => prev.filter((m) => m.id !== tempId));
+      setMessages((prev) => prev.filter((m) => m.id !== msgId));
       setText(content);
     } else {
-      setMessages((prev) => prev.map((m) => m.id === tempId ? (data as Message) : m));
+      setMessages((prev) => prev.map((m) => m.id === msgId ? (data as Message) : m));
     }
     setSending(false);
   };
@@ -192,7 +197,7 @@ export default function MessageThreadScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={["top"]}>
+    <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
       {/* Header */}
       <View style={styles.header}>
         <Pressable style={styles.backButton} onPress={() => router.back()}>
