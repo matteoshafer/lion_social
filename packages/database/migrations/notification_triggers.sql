@@ -1,8 +1,15 @@
 -- ============================================================
 -- Notification triggers — auto-create notifications on:
 --   Like insert, Comment insert, Follow insert
+-- Plus Row Level Security so recipients can read / mark-read
+-- their own notifications.
+--
 -- Run in Supabase Dashboard → SQL Editor → New query
 -- Safe to run multiple times (CREATE OR REPLACE + DROP IF EXISTS)
+--
+-- Notification.referenceId format:
+--   like/comment/save : '<actorUserId>:<postId>'
+--   follow            : '<followerUserId>'
 -- ============================================================
 
 -- ── LIKE → notify post owner ────────────────────────────────
@@ -84,3 +91,40 @@ DROP TRIGGER IF EXISTS on_follow_insert ON "Follow";
 CREATE TRIGGER on_follow_insert
   AFTER INSERT ON "Follow"
   FOR EACH ROW EXECUTE FUNCTION notify_on_follow();
+
+-- ── Row Level Security ───────────────────────────────────────
+-- App users authenticate via Supabase Auth; the app-level user row
+-- is linked via "User"."supabaseId" = auth.uid(). The recipient may
+-- read their notifications (also required for Realtime delivery)
+-- and update them (mark as read).
+
+ALTER TABLE "Notification" ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "notification_select_recipient" ON "Notification";
+CREATE POLICY "notification_select_recipient" ON "Notification"
+  FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM "User" u
+      WHERE u."supabaseId" = auth.uid()::text
+        AND u.id = "Notification"."userId"
+    )
+  );
+
+DROP POLICY IF EXISTS "notification_update_recipient" ON "Notification";
+CREATE POLICY "notification_update_recipient" ON "Notification"
+  FOR UPDATE
+  USING (
+    EXISTS (
+      SELECT 1 FROM "User" u
+      WHERE u."supabaseId" = auth.uid()::text
+        AND u.id = "Notification"."userId"
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM "User" u
+      WHERE u."supabaseId" = auth.uid()::text
+        AND u.id = "Notification"."userId"
+    )
+  );

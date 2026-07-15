@@ -48,8 +48,7 @@ export function useNotifications() {
       .from("Notification")
       .select("id, type, referenceId, read, createdAt")
       .eq("userId", userId)
-      .order("createdAt", { ascending: false })
-      .limit(50);
+      .order("createdAt", { ascending: false });
 
     if (!rows?.length) {
       setNotifications([]);
@@ -146,12 +145,14 @@ export function useNotifications() {
   }, [appUserId]);
 
   const markRead = useCallback(async (id: string) => {
-    await supabase.from("Notification").update({ read: true }).eq("id", id);
+    const target = notifications.find((n) => n.id === id);
+    if (!target || target.isRead) return;
     setNotifications((prev) =>
       prev.map((n) => (n.id === id ? { ...n, isRead: true } : n))
     );
     setUnreadCount((prev) => Math.max(0, prev - 1));
-  }, []);
+    await supabase.from("Notification").update({ read: true }).eq("id", id);
+  }, [notifications]);
 
   const refetch = useCallback(async () => {
     if (appUserId) await fetchNotifications(appUserId);

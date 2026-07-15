@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
 import Colors from "../../src/constants/colors";
 import { getRelativeTime } from "../../src/constants/mock-data";
 import Avatar from "../../src/components/Avatar";
@@ -23,6 +24,7 @@ const NOTIFICATION_ICONS: Record<string, string> = {
 };
 
 export default function NotificationsScreen() {
+  const router = useRouter();
   const { notifications, unreadCount, loading, markAllRead, markRead, refetch } =
     useNotifications();
 
@@ -36,6 +38,52 @@ export default function NotificationsScreen() {
   // Track which actor IDs we are following back
   const [followingSet, setFollowingSet] = useState<Set<string>>(new Set());
   const [followLoadingSet, setFollowLoadingSet] = useState<Set<string>>(new Set());
+
+  // Initialize follow-back state from the DB so actors we already follow show "Following"
+  useEffect(() => {
+    const followActorIds = Array.from(
+      new Set(
+        notifications.filter((n) => n.type === "follow").map((n) => n.actor.id)
+      )
+    );
+    if (followActorIds.length === 0) return;
+
+    let cancelled = false;
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const { data: me } = await supabase
+        .from("User").select("id").eq("supabaseId", session.user.id).single();
+      if (!me) return;
+      const { data: follows } = await supabase
+        .from("Follow")
+        .select("followingId")
+        .eq("followerId", me.id)
+        .in("followingId", followActorIds);
+      if (!cancelled && follows) {
+        setFollowingSet((prev) => {
+          const next = new Set(prev);
+          follows.forEach((f) => next.add(f.followingId));
+          return next;
+        });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [notifications]);
+
+  const handleNotificationPress = useCallback(
+    (item: RealNotification) => {
+      markRead(item.id);
+      if (item.type !== "follow" && item.postId) {
+        router.push(`/post/${item.postId}`);
+      } else {
+        router.push(`/user/${item.actor.id}`);
+      }
+    },
+    [markRead, router]
+  );
 
   const handleFollowBack = useCallback(async (actorId: string) => {
     if (followLoadingSet.has(actorId)) return;
@@ -84,7 +132,7 @@ export default function NotificationsScreen() {
         styles.notificationRow,
         !item.isRead && styles.notificationUnread,
       ]}
-      onPress={() => markRead(item.id)}
+      onPress={() => handleNotificationPress(item)}
     >
       {/* Unread Indicator */}
       {!item.isRead && <View style={styles.unreadDot} />}
