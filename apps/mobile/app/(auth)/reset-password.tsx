@@ -1,51 +1,58 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   View, Text, TextInput, Pressable, KeyboardAvoidingView,
   ScrollView, ActivityIndicator, Alert, Platform, StyleSheet,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
+import * as Linking from "expo-linking";
 import Colors from "../../src/constants/colors";
 import { supabase } from "../../src/lib/supabase";
 
-export default function SignInScreen() {
+export default function ResetPasswordScreen() {
   const router = useRouter();
-  const [identifier, setIdentifier] = useState("");
-  const [password, setPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const handleSignIn = async () => {
-    if (!identifier.trim() || !password) {
-      Alert.alert("Missing fields", "Please enter your email or username and password.");
+  // The client uses PKCE with detectSessionInUrl disabled, so the recovery
+  // link arrives as gains://reset-password?code=... and we must exchange the
+  // code for a session ourselves (same pattern as auth/callback.tsx).
+  useEffect(() => {
+    Linking.getInitialURL().then(async (url) => {
+      if (!url) return;
+      const parsed = Linking.parse(url);
+      const code = parsed.queryParams?.code as string | undefined;
+      if (!code) return;
+      const { error } = await supabase.auth.exchangeCodeForSession(code);
+      if (error) {
+        Alert.alert(
+          "Link expired",
+          "This reset link is invalid or has expired. Please request a new one.",
+        );
+      }
+    });
+  }, []);
+
+  const handleUpdatePassword = async () => {
+    if (!newPassword || !confirmPassword) {
+      Alert.alert("Missing fields", "Please enter and confirm your new password.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      Alert.alert("Passwords don't match", "Please make sure both passwords are the same.");
       return;
     }
     setLoading(true);
-
-    let emailToUse = identifier.trim().toLowerCase();
-
-    // If no @ sign, treat as username — look up email via security definer RPC (bypasses RLS)
-    if (!emailToUse.includes("@")) {
-      const { data: email, error: lookupError } = await supabase
-        .rpc("get_email_by_username", { p_username: emailToUse });
-
-      if (lookupError || !email) {
-        setLoading(false);
-        Alert.alert("Sign in failed", "No account found with that username.");
-        return;
-      }
-      emailToUse = email;
-    }
-
-    const { error } = await supabase.auth.signInWithPassword({
-      email: emailToUse,
-      password,
-    });
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
     setLoading(false);
     if (error) {
-      Alert.alert("Sign in failed", error.message);
+      Alert.alert("Update failed", error.message);
+      return;
     }
-    // On success, AuthGate in _layout.tsx handles the redirect automatically
+    Alert.alert("Password updated!", "You can now sign in with your new password.");
+    router.replace("/(auth)/sign-in");
   };
 
   return (
@@ -68,31 +75,16 @@ export default function SignInScreen() {
 
           {/* Form */}
           <View style={styles.form}>
-            <Text style={styles.formTitle}>Welcome back</Text>
-            <Text style={styles.formSubtitle}>Sign in to continue your journey</Text>
+            <Text style={styles.formTitle}>Reset Password</Text>
+            <Text style={styles.formSubtitle}>Choose a new password for your account</Text>
 
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>EMAIL OR USERNAME</Text>
-              <TextInput
-                style={styles.input}
-                value={identifier}
-                onChangeText={setIdentifier}
-                placeholder="you@example.com or your_handle"
-                placeholderTextColor={Colors.grayDark}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={false}
-                selectionColor={Colors.gold}
-              />
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>PASSWORD</Text>
+              <Text style={styles.inputLabel}>NEW PASSWORD</Text>
               <View style={styles.passwordRow}>
                 <TextInput
                   style={[styles.input, styles.passwordInput]}
-                  value={password}
-                  onChangeText={setPassword}
+                  value={newPassword}
+                  onChangeText={setNewPassword}
                   placeholder="••••••••"
                   placeholderTextColor={Colors.grayDark}
                   secureTextEntry={!showPassword}
@@ -105,33 +97,30 @@ export default function SignInScreen() {
               </View>
             </View>
 
-            <Pressable onPress={() => router.push('/(auth)/forgot-password')} style={styles.forgotBtn}>
-              <Text style={styles.forgotText}>Forgot password?</Text>
-            </Pressable>
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>CONFIRM PASSWORD</Text>
+              <TextInput
+                style={styles.input}
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                placeholder="••••••••"
+                placeholderTextColor={Colors.grayDark}
+                secureTextEntry={!showPassword}
+                autoCapitalize="none"
+                selectionColor={Colors.gold}
+              />
+            </View>
 
             <Pressable
-              style={[styles.signInButton, loading && styles.buttonDisabled]}
-              onPress={handleSignIn}
+              style={[styles.primaryButton, loading && styles.buttonDisabled]}
+              onPress={handleUpdatePassword}
               disabled={loading}
             >
               {loading ? (
                 <ActivityIndicator color={Colors.black} />
               ) : (
-                <Text style={styles.signInButtonText}>SIGN IN</Text>
+                <Text style={styles.primaryButtonText}>UPDATE PASSWORD</Text>
               )}
-            </Pressable>
-
-            <View style={styles.divider}>
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>or</Text>
-              <View style={styles.dividerLine} />
-            </View>
-
-            <Pressable style={styles.signUpLink} onPress={() => router.push("/(auth)/sign-up")}>
-              <Text style={styles.signUpLinkText}>
-                Don't have an account?{" "}
-                <Text style={styles.signUpLinkAccent}>Create one</Text>
-              </Text>
             </Pressable>
           </View>
         </ScrollView>
@@ -170,23 +159,12 @@ const styles = StyleSheet.create({
   },
   eyeIcon: { fontSize: 16 },
 
-  forgotBtn: { alignSelf: 'flex-end', marginTop: 6, marginBottom: 16 },
-  forgotText: { color: Colors.gray, fontSize: 13, textDecorationLine: 'underline' },
-
-  signInButton: {
+  primaryButton: {
     backgroundColor: Colors.gold, borderRadius: 16, paddingVertical: 18,
     alignItems: "center", marginTop: 8,
     shadowColor: Colors.gold, shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3, shadowRadius: 12, elevation: 8,
   },
   buttonDisabled: { opacity: 0.7 },
-  signInButtonText: { fontSize: 16, fontWeight: "800", color: Colors.black, letterSpacing: 1.5 },
-
-  divider: { flexDirection: "row", alignItems: "center", marginVertical: 24, gap: 12 },
-  dividerLine: { flex: 1, height: 1, backgroundColor: Colors.dark700 },
-  dividerText: { fontSize: 13, color: Colors.grayDark },
-
-  signUpLink: { alignItems: "center" },
-  signUpLinkText: { fontSize: 15, color: Colors.gray },
-  signUpLinkAccent: { color: Colors.gold, fontWeight: "700" },
+  primaryButtonText: { fontSize: 16, fontWeight: "800", color: Colors.black, letterSpacing: 1.5 },
 });

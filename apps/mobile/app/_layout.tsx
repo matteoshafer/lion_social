@@ -29,8 +29,11 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (session === undefined) return;
     const inAuthGroup = segments[0] === "(auth)";
+    // The password-recovery deep link establishes a session; don't kick the
+    // user off the reset screen before they've set a new password.
+    const onResetPassword = segments[1] === "reset-password";
     // Redirect authenticated users away from auth screens
-    if (session && inAuthGroup) {
+    if (session && inAuthGroup && !onResetPassword) {
       router.replace("/(tabs)");
     }
     // Unauthenticated users can browse freely — tab layout shows sign-in prompts for gated screens
