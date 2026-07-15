@@ -10,6 +10,8 @@ import {
   ActivityIndicator,
   StyleSheet,
   Share,
+  TextInput,
+  Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -57,7 +59,11 @@ async function ensureUserRecord(session: { user: { id: string; email?: string; u
   }
 }
 
-async function fetchProfile(): Promise<{ user: MockUser; posts: MockPost[] } | null> {
+const REFERRAL_SHARE_LINK = "https://testflight.apple.com/join/ArPDp7sU";
+
+type ProfileData = { user: MockUser; posts: MockPost[]; referralCode: string | null };
+
+async function fetchProfile(): Promise<ProfileData | null> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) return null;
 
@@ -81,11 +87,15 @@ async function fetchProfile(): Promise<{ user: MockUser; posts: MockPost[] } | n
   return fetchProfileForUser(appUser as any);
 }
 
-async function fetchProfileForUser(u: any): Promise<{ user: MockUser; posts: MockPost[] } | null> {
-  const [followersRes, followingRes] = await Promise.all([
+async function fetchProfileForUser(u: any): Promise<ProfileData | null> {
+  const [followersRes, followingRes, referralRes] = await Promise.all([
     supabase.from("Follow").select("id", { count: "exact", head: true }).eq("followingId", u.id),
     supabase.from("Follow").select("id", { count: "exact", head: true }).eq("followerId", u.id),
+    // Separate query so the profile still loads if the referralCode migration hasn't run yet
+    supabase.from("User").select("referralCode").eq("id", u.id).single(),
   ]);
+
+  const referralCode: string | null = (referralRes.data as any)?.referralCode ?? null;
 
   const user: MockUser = {
     id: u.id,
@@ -109,7 +119,7 @@ async function fetchProfileForUser(u: any): Promise<{ user: MockUser; posts: Moc
     .eq("userId", u.id)
     .order("createdAt", { ascending: false });
 
-  if (postsError || !postsData) return { user, posts: [] };
+  if (postsError || !postsData) return { user, posts: [], referralCode };
 
   user.postsCount = postsData.length;
 
@@ -126,7 +136,7 @@ async function fetchProfileForUser(u: any): Promise<{ user: MockUser; posts: Moc
     createdAt: p.createdAt,
   }));
 
-  return { user, posts };
+  return { user, posts, referralCode };
 }
 
 export default function ProfileScreen() {
@@ -136,12 +146,18 @@ export default function ProfileScreen() {
   const [userPosts, setUserPosts] = useState<MockPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [referralCode, setReferralCode] = useState<string | null>(null);
+  const [editingCode, setEditingCode] = useState(false);
+  const [codeDraft, setCodeDraft] = useState("");
+  const [codeError, setCodeError] = useState<string | null>(null);
+  const [savingCode, setSavingCode] = useState(false);
 
   const load = useCallback(async () => {
     const result = await fetchProfile();
     if (result) {
       setCurrentUser(result.user);
       setUserPosts(result.posts);
+      setReferralCode(result.referralCode ?? result.user.username);
     }
     setLoading(false);
   }, []);
@@ -153,6 +169,65 @@ export default function ProfileScreen() {
     await load();
     setRefreshing(false);
   }, [load]);
+
+  const handleCopyCode = useCallback(() => {
+    if (!referralCode) return;
+    // Clipboard package isn't installed; the native share sheet lets the user copy or send the code
+    Share.share({
+      message: `Join me on Gains! Use my code ${referralCode} to sign up: ${REFERRAL_SHARE_LINK}`,
+    });
+  }, [referralCode]);
+
+  const startEditingCode = useCallback(() => {
+    setCodeDraft(referralCode ?? "");
+    setCodeError(null);
+    setEditingCode(true);
+  }, [referralCode]);
+
+  const handleSaveCode = useCallback(async () => {
+    if (!currentUser || savingCode) return;
+    const newCode = codeDraft.trim();
+    if (!newCode) {
+      setCodeError("Code can't be empty");
+      return;
+    }
+    if (newCode === referralCode) {
+      setEditingCode(false);
+      setCodeError(null);
+      return;
+    }
+    setSavingCode(true);
+    setCodeError(null);
+
+    const { data: available, error: rpcError } = await supabase.rpc("check_referral_code_available", {
+      p_code: newCode,
+      p_user_id: currentUser.id,
+    });
+
+    if (rpcError) {
+      setCodeError("Couldn't validate code. Try again.");
+      setSavingCode(false);
+      return;
+    }
+    if (!available) {
+      setCodeError("That code is already taken");
+      setSavingCode(false);
+      return;
+    }
+
+    const { error: updateError } = await supabase
+      .from("User")
+      .update({ referralCode: newCode })
+      .eq("id", currentUser.id);
+
+    if (updateError) {
+      setCodeError(updateError.code === "23505" ? "That code is already taken" : "Couldn't save code. Try again.");
+    } else {
+      setReferralCode(newCode);
+      setEditingCode(false);
+    }
+    setSavingCode(false);
+  }, [currentUser, savingCode, codeDraft, referralCode]);
 
   const displayPosts = activeTab === "posts" ? userPosts : [];
 
@@ -214,6 +289,48 @@ export default function ProfileScreen() {
 
           <Text style={styles.displayName}>{currentUser.displayName}</Text>
           <Text style={styles.bio}>{currentUser.bio}</Text>
+
+          {/* Referral Code */}
+          <View style={styles.referralSection}>
+            <Text style={styles.referralLabel}>Referral Code</Text>
+            <View style={styles.referralBox}>
+              {editingCode ? (
+                <>
+                  <TextInput
+                    style={styles.referralInput}
+                    value={codeDraft}
+                    onChangeText={(t) => { setCodeDraft(t); setCodeError(null); }}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    autoFocus
+                    editable={!savingCode}
+                    placeholder="Enter code"
+                    placeholderTextColor={Colors.gray}
+                    onSubmitEditing={handleSaveCode}
+                    onBlur={handleSaveCode}
+                  />
+                  {savingCode ? (
+                    <ActivityIndicator size="small" color={Colors.gold} />
+                  ) : (
+                    <Pressable onPress={handleSaveCode} hitSlop={8}>
+                      <Text style={styles.referralCheckmark}>✓</Text>
+                    </Pressable>
+                  )}
+                </>
+              ) : (
+                <>
+                  <Text style={styles.referralCode} numberOfLines={1}>{referralCode ?? currentUser.username}</Text>
+                  <Pressable onPress={startEditingCode} hitSlop={8}>
+                    <Text style={styles.referralEdit}>Edit</Text>
+                  </Pressable>
+                  <Pressable style={styles.referralCopyButton} onPress={handleCopyCode}>
+                    <Text style={styles.referralCopyText}>Copy</Text>
+                  </Pressable>
+                </>
+              )}
+            </View>
+            {codeError ? <Text style={styles.referralError}>{codeError}</Text> : null}
+          </View>
 
           <View style={styles.statsRow}>
             <View style={styles.statItem}>
@@ -332,6 +449,34 @@ const styles = StyleSheet.create({
     fontSize: 14, color: Colors.grayLight, textAlign: "center",
     lineHeight: 21, paddingHorizontal: 20, marginBottom: 20,
   },
+  referralSection: { width: "100%", marginBottom: 20 },
+  referralLabel: {
+    fontSize: 12, fontWeight: "600", color: Colors.gray,
+    textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8,
+  },
+  referralBox: {
+    flexDirection: "row", alignItems: "center", gap: 12,
+    backgroundColor: Colors.dark800, borderRadius: 12,
+    borderWidth: 1, borderColor: Colors.gold,
+    paddingHorizontal: 16, paddingVertical: 12,
+  },
+  referralCode: {
+    flex: 1, fontSize: 16, fontWeight: "700", color: Colors.white, letterSpacing: 1,
+    fontFamily: Platform.select({ ios: "Menlo", android: "monospace" }),
+  },
+  referralInput: {
+    flex: 1, fontSize: 16, fontWeight: "700", color: Colors.white, letterSpacing: 1,
+    fontFamily: Platform.select({ ios: "Menlo", android: "monospace" }),
+    padding: 0,
+  },
+  referralEdit: { fontSize: 13, fontWeight: "600", color: Colors.gray },
+  referralCheckmark: { fontSize: 18, fontWeight: "700", color: Colors.gold },
+  referralCopyButton: {
+    backgroundColor: Colors.gold, borderRadius: 8,
+    paddingHorizontal: 14, paddingVertical: 6,
+  },
+  referralCopyText: { fontSize: 13, fontWeight: "700", color: Colors.black },
+  referralError: { fontSize: 12, color: Colors.error, marginTop: 6 },
   statsRow: {
     flexDirection: "row", alignItems: "center",
     backgroundColor: Colors.dark800, borderRadius: 16,

@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import {
   View, Text, ScrollView, Pressable, Image,
-  Dimensions, RefreshControl, ActivityIndicator, StyleSheet, Modal, Alert,
+  Dimensions, RefreshControl, ActivityIndicator, StyleSheet, Modal, Alert, Share, Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -16,7 +16,11 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const GRID_GAP = 2;
 const GRID_ITEM_SIZE = (SCREEN_WIDTH - GRID_GAP * 2) / 3;
 
-async function fetchUserProfile(userId: string): Promise<{ user: MockUser; posts: MockPost[] } | null> {
+const REFERRAL_SHARE_LINK = "https://testflight.apple.com/join/ArPDp7sU";
+
+type UserProfileData = { user: MockUser; posts: MockPost[]; referralCode: string | null };
+
+async function fetchUserProfile(userId: string): Promise<UserProfileData | null> {
   const { data: u, error } = await supabase
     .from("User")
     .select("id, username, bio, avatarUrl")
@@ -26,10 +30,14 @@ async function fetchUserProfile(userId: string): Promise<{ user: MockUser; posts
   if (error || !u) return null;
   const row = u as any;
 
-  const [followersRes, followingRes] = await Promise.all([
+  const [followersRes, followingRes, referralRes] = await Promise.all([
     supabase.from("Follow").select("id", { count: "exact", head: true }).eq("followingId", row.id),
     supabase.from("Follow").select("id", { count: "exact", head: true }).eq("followerId", row.id),
+    // Separate query so the profile still loads if the referralCode migration hasn't run yet
+    supabase.from("User").select("referralCode").eq("id", row.id).single(),
   ]);
+
+  const referralCode: string | null = (referralRes.data as any)?.referralCode ?? null;
 
   const user: MockUser = {
     id: row.id,
@@ -63,13 +71,13 @@ async function fetchUserProfile(userId: string): Promise<{ user: MockUser; posts
   }));
 
   user.postsCount = posts.length;
-  return { user, posts };
+  return { user, posts, referralCode: referralCode ?? row.username };
 }
 
 export default function UserProfileScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const [data, setData] = useState<{ user: MockUser; posts: MockPost[] } | null>(null);
+  const [data, setData] = useState<UserProfileData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
@@ -206,8 +214,16 @@ export default function UserProfileScreen() {
     );
   }
 
-  const { user, posts } = data;
+  const { user, posts, referralCode } = data;
   const isOwnProfile = appUserId === user.id;
+
+  const handleCopyCode = () => {
+    if (!referralCode) return;
+    // Clipboard package isn't installed; the native share sheet lets the user copy or send the code
+    Share.share({
+      message: `Join me on Gains! Use my code ${referralCode} to sign up: ${REFERRAL_SHARE_LINK}`,
+    });
+  };
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
@@ -244,6 +260,19 @@ export default function UserProfileScreen() {
 
           <Text style={styles.displayName}>{user.displayName}</Text>
           {user.bio ? <Text style={styles.bio}>{user.bio}</Text> : null}
+
+          {/* Referral Code (read-only) */}
+          {referralCode ? (
+            <View style={styles.referralSection}>
+              <Text style={styles.referralLabel}>Referral Code</Text>
+              <View style={styles.referralBox}>
+                <Text style={styles.referralCode} numberOfLines={1}>{referralCode}</Text>
+                <Pressable style={styles.referralCopyButton} onPress={handleCopyCode}>
+                  <Text style={styles.referralCopyText}>Copy</Text>
+                </Pressable>
+              </View>
+            </View>
+          ) : null}
 
           <View style={styles.statsRow}>
             <View style={styles.statItem}>
@@ -354,6 +383,26 @@ const styles = StyleSheet.create({
     fontSize: 14, color: Colors.grayLight, textAlign: "center",
     lineHeight: 21, paddingHorizontal: 20, marginBottom: 20,
   },
+  referralSection: { width: "100%", marginBottom: 20 },
+  referralLabel: {
+    fontSize: 12, fontWeight: "600", color: Colors.gray,
+    textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8,
+  },
+  referralBox: {
+    flexDirection: "row", alignItems: "center", gap: 12,
+    backgroundColor: Colors.dark800, borderRadius: 12,
+    borderWidth: 1, borderColor: Colors.gold,
+    paddingHorizontal: 16, paddingVertical: 12,
+  },
+  referralCode: {
+    flex: 1, fontSize: 16, fontWeight: "700", color: Colors.white, letterSpacing: 1,
+    fontFamily: Platform.select({ ios: "Menlo", android: "monospace" }),
+  },
+  referralCopyButton: {
+    backgroundColor: Colors.gold, borderRadius: 8,
+    paddingHorizontal: 14, paddingVertical: 6,
+  },
+  referralCopyText: { fontSize: 13, fontWeight: "700", color: Colors.black },
   statsRow: {
     flexDirection: "row", alignItems: "center",
     backgroundColor: Colors.dark800, borderRadius: 16,
