@@ -18,9 +18,10 @@ export default function ResetPasswordScreen() {
 
   // The client uses PKCE with detectSessionInUrl disabled, so the recovery
   // link arrives as gains://reset-password?code=... and we must exchange the
-  // code for a session ourselves (same pattern as auth/callback.tsx).
+  // code for a session ourselves.
+  // Handle both cold-start (getInitialURL) and warm-start (addEventListener).
   useEffect(() => {
-    Linking.getInitialURL().then(async (url) => {
+    async function handleUrl(url: string | null) {
       if (!url) return;
       const parsed = Linking.parse(url);
       const code = parsed.queryParams?.code as string | undefined;
@@ -30,9 +31,14 @@ export default function ResetPasswordScreen() {
         Alert.alert(
           "Link expired",
           "This reset link is invalid or has expired. Please request a new one.",
+          [{ text: "OK", onPress: () => router.replace("/(auth)/forgot-password") }],
         );
       }
-    });
+    }
+
+    Linking.getInitialURL().then(handleUrl);
+    const sub = Linking.addEventListener("url", ({ url }) => handleUrl(url));
+    return () => sub.remove();
   }, []);
 
   const handleUpdatePassword = async () => {
