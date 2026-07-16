@@ -66,6 +66,11 @@ function mapPost(p: any, currentUserId: string | null): MockPost {
   };
 }
 
+async function fetchBlockedIds(currentUserId: string): Promise<Set<string>> {
+  const { data } = await supabase.from("Block").select("blockedId").eq("blockerId", currentUserId);
+  return new Set((data ?? []).map((b: any) => b.blockedId));
+}
+
 async function fetchFeedPosts(currentUserId: string | null): Promise<MockPost[]> {
   // Guest: newest posts from everyone, no personalization
   if (!currentUserId) {
@@ -129,7 +134,11 @@ async function fetchFeedPosts(currentUserId: string | null): Promise<MockPost[]>
     combined.push(p);
   }
 
-  return combined.slice(0, 30).map((p) => mapPost(p, currentUserId));
+  const blockedIds = await fetchBlockedIds(currentUserId);
+  return combined
+    .filter((p) => !blockedIds.has(p.userId ?? p.User?.id))
+    .slice(0, 30)
+    .map((p) => mapPost(p, currentUserId));
 }
 
 export default function HomeScreen() {
@@ -178,7 +187,12 @@ export default function HomeScreen() {
   );
 
   const renderPost = ({ item }: { item: MockPost }) => (
-    <PostCard post={item} currentUserId={currentUserId} />
+    <PostCard
+      post={item}
+      currentUserId={currentUserId}
+      onBlock={(blockedUserId) => setPosts((prev) => prev.filter((p) => p.userId !== blockedUserId))}
+      onDelete={() => setPosts((prev) => prev.filter((p) => p.id !== item.id))}
+    />
   );
 
   const renderEmpty = () => (

@@ -84,6 +84,8 @@ export default function UserProfileScreen() {
   const [appUserId, setAppUserId] = useState<string | null>(null);
   const [followLoading, setFollowLoading] = useState(false);
   const [avatarModalVisible, setAvatarModalVisible] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
+  const [showReportReasons, setShowReportReasons] = useState(false);
   const lastTapRef = useRef<Map<string, number>>(new Map());
 
   const handleGridTap = useCallback((post: MockPost) => {
@@ -217,6 +219,46 @@ export default function UserProfileScreen() {
   const { user, posts, referralCode } = data;
   const isOwnProfile = appUserId === user.id;
 
+  const REPORT_REASONS = ["Spam", "Inappropriate content", "Harassment", "False information", "Other"];
+
+  const handleReportUser = async (reason: string) => {
+    setShowReportReasons(false);
+    if (!appUserId) return;
+    await supabase.from("Report").insert({
+      id: "rep" + Math.random().toString(36).substring(2, 24),
+      reporterId: appUserId,
+      targetType: "user",
+      targetId: user.id,
+      reason,
+      createdAt: new Date().toISOString(),
+    });
+    Alert.alert("Thanks for reporting", "We'll review this account.");
+  };
+
+  const handleBlockUser = () => {
+    setShowMenu(false);
+    Alert.alert(
+      `Block @${user.username}?`,
+      "They won't be able to see your posts and you won't see theirs.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Block", style: "destructive",
+          onPress: async () => {
+            if (!appUserId) return;
+            await supabase.from("Block").insert({
+              id: "blk" + Math.random().toString(36).substring(2, 24),
+              blockerId: appUserId,
+              blockedId: user.id,
+              createdAt: new Date().toISOString(),
+            });
+            router.back();
+          },
+        },
+      ],
+    );
+  };
+
   const handleCopyCode = () => {
     if (!referralCode) return;
     // Clipboard package isn't installed; the native share sheet lets the user copy or send the code
@@ -232,8 +274,48 @@ export default function UserProfileScreen() {
           <Text style={styles.backIcon}>←</Text>
         </Pressable>
         <Text style={styles.headerTitle}>@{user.username}</Text>
-        <View style={styles.backButton} />
+        {!isOwnProfile ? (
+          <Pressable onPress={() => setShowMenu(true)} style={styles.backButton} hitSlop={12}>
+            <Text style={{ fontSize: 22, color: Colors.gray, letterSpacing: 1 }}>⋯</Text>
+          </Pressable>
+        ) : (
+          <View style={styles.backButton} />
+        )}
       </View>
+
+      {/* Three-dot menu */}
+      <Modal visible={showMenu} transparent animationType="slide" onRequestClose={() => setShowMenu(false)}>
+        <Pressable style={menuStyles.backdrop} onPress={() => setShowMenu(false)}>
+          <View style={menuStyles.sheet}>
+            <Pressable style={menuStyles.option} onPress={() => { setShowMenu(false); setShowReportReasons(true); }}>
+              <Text style={[menuStyles.optionText, { color: "#FF3B30" }]}>Report this account</Text>
+            </Pressable>
+            <Pressable style={menuStyles.option} onPress={handleBlockUser}>
+              <Text style={[menuStyles.optionText, { color: "#FF3B30" }]}>Block @{user.username}</Text>
+            </Pressable>
+            <Pressable style={[menuStyles.option, { borderBottomWidth: 0 }]} onPress={() => setShowMenu(false)}>
+              <Text style={[menuStyles.optionText, { color: Colors.gray }]}>Cancel</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
+
+      {/* Report reasons */}
+      <Modal visible={showReportReasons} transparent animationType="slide" onRequestClose={() => setShowReportReasons(false)}>
+        <Pressable style={menuStyles.backdrop} onPress={() => setShowReportReasons(false)}>
+          <View style={menuStyles.sheet}>
+            <Text style={menuStyles.title}>Report this account</Text>
+            {REPORT_REASONS.map((reason) => (
+              <Pressable key={reason} style={menuStyles.option} onPress={() => handleReportUser(reason)}>
+                <Text style={menuStyles.optionText}>{reason}</Text>
+              </Pressable>
+            ))}
+            <Pressable style={[menuStyles.option, { borderBottomWidth: 0 }]} onPress={() => setShowReportReasons(false)}>
+              <Text style={[menuStyles.optionText, { color: Colors.gray }]}>Cancel</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
 
       <ScrollView
         showsVerticalScrollIndicator={false}
@@ -454,4 +536,12 @@ const styles = StyleSheet.create({
     alignItems: "center", justifyContent: "center",
   },
   avatarModalImage: { width: SCREEN_WIDTH, height: SCREEN_WIDTH },
+});
+
+const menuStyles = StyleSheet.create({
+  backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "flex-end" },
+  sheet: { backgroundColor: Colors.dark800, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingHorizontal: 20, paddingTop: 8, paddingBottom: 36 },
+  title: { fontSize: 13, fontWeight: "600", color: Colors.gray, textAlign: "center", paddingVertical: 12 },
+  option: { paddingVertical: 16, borderBottomWidth: 0.5, borderBottomColor: Colors.dark700 },
+  optionText: { fontSize: 17, color: Colors.white, textAlign: "center" },
 });

@@ -7,6 +7,8 @@ import {
   StyleSheet,
   Dimensions,
   Animated,
+  Modal,
+  Alert,
 } from "react-native";
 import { useRouter } from "expo-router";
 import Colors from "../constants/colors";
@@ -20,19 +22,33 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
 interface PostCardProps {
   post: MockPost;
-  currentUserId?: string | null; // Pass from parent to avoid per-card auth fetch
+  currentUserId?: string | null;
+  onBlock?: (blockedUserId: string) => void;
+  onDelete?: () => void;
 }
 
-export default function PostCard({ post, currentUserId }: PostCardProps) {
+const REPORT_REASONS = ["Spam", "Inappropriate content", "Harassment", "False information", "Other"];
+
+export default function PostCard({ post, currentUserId, onBlock, onDelete }: PostCardProps) {
   const router = useRouter();
   const [isLiked, setIsLiked] = useState(post.isLiked);
   const [likesCount, setLikesCount] = useState(post.likesCount);
   const [isSaved, setIsSaved] = useState(false);
   const [appUserId, setAppUserId] = useState<string | null>(currentUserId ?? null);
+  const [showMenu, setShowMenu] = useState(false);
+  const [showReportReasons, setShowReportReasons] = useState(false);
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastMsg, setToastMsg] = useState("");
   const heartScale = useRef(new Animated.Value(0)).current;
   const heartOpacity = useRef(new Animated.Value(0)).current;
   const lastTapRef = useRef<number>(0);
   const pendingNavRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMsg(msg);
+    setToastVisible(true);
+    setTimeout(() => setToastVisible(false), 2000);
+  };
 
   // Sync from parent when post data changes (e.g. after navigating back to feed)
   useEffect(() => {
@@ -99,6 +115,61 @@ export default function PostCard({ post, currentUserId }: PostCardProps) {
 
   const handleShare = () => sharePost(post);
 
+  const handleReport = async (reason: string) => {
+    setShowReportReasons(false);
+    setShowMenu(false);
+    if (!appUserId) return;
+    await supabase.from("Report").insert({
+      id: "rep" + Math.random().toString(36).substring(2, 24),
+      reporterId: appUserId,
+      targetType: "post",
+      targetId: post.id,
+      reason,
+      createdAt: new Date().toISOString(),
+    });
+    showToast("Thanks for reporting");
+  };
+
+  const handleBlock = () => {
+    setShowMenu(false);
+    Alert.alert(
+      `Block @${post.user.username}?`,
+      "They won't be able to see your posts and you won't see theirs.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Block", style: "destructive",
+          onPress: async () => {
+            if (!appUserId) return;
+            await supabase.from("Block").insert({
+              id: "blk" + Math.random().toString(36).substring(2, 24),
+              blockerId: appUserId,
+              blockedId: post.user.id,
+              createdAt: new Date().toISOString(),
+            });
+            onBlock?.(post.user.id);
+          },
+        },
+      ],
+    );
+  };
+
+  const handleDelete = () => {
+    setShowMenu(false);
+    Alert.alert("Delete post?", "This can't be undone.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete", style: "destructive",
+        onPress: async () => {
+          await supabase.from("Post").delete().eq("id", post.id);
+          onDelete?.();
+        },
+      },
+    ]);
+  };
+
+  const isOwnPost = appUserId === post.user.id;
+
   const showHeartBurst = () => {
     heartScale.setValue(0);
     heartOpacity.setValue(1);
@@ -144,8 +215,62 @@ export default function PostCard({ post, currentUserId }: PostCardProps) {
             <Text style={styles.timestamp}>{getRelativeTime(post.createdAt)}</Text>
           </View>
         </Pressable>
-        <PostTypeBadge type={post.type} />
+        <View style={styles.headerRight}>
+          <PostTypeBadge type={post.type} />
+          <Pressable onPress={() => setShowMenu(true)} style={styles.menuButton} hitSlop={10}>
+            <Text style={styles.menuIcon}>⋯</Text>
+          </Pressable>
+        </View>
       </View>
+
+      {/* Three-dot menu modal */}
+      <Modal visible={showMenu} transparent animationType="slide" onRequestClose={() => setShowMenu(false)}>
+        <Pressable style={styles.menuBackdrop} onPress={() => setShowMenu(false)}>
+          <View style={styles.menuSheet}>
+            {isOwnPost ? (
+              <Pressable style={styles.menuOption} onPress={handleDelete}>
+                <Text style={[styles.menuOptionText, styles.destructiveText]}>Delete Post</Text>
+              </Pressable>
+            ) : (
+              <>
+                <Pressable style={styles.menuOption} onPress={() => { setShowMenu(false); setShowReportReasons(true); }}>
+                  <Text style={[styles.menuOptionText, styles.destructiveText]}>Report</Text>
+                </Pressable>
+                <Pressable style={styles.menuOption} onPress={handleBlock}>
+                  <Text style={[styles.menuOptionText, styles.destructiveText]}>Block @{post.user.username}</Text>
+                </Pressable>
+              </>
+            )}
+            <Pressable style={[styles.menuOption, { borderBottomWidth: 0 }]} onPress={() => setShowMenu(false)}>
+              <Text style={[styles.menuOptionText, { color: Colors.gray }]}>Cancel</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
+
+      {/* Report reasons modal */}
+      <Modal visible={showReportReasons} transparent animationType="slide" onRequestClose={() => setShowReportReasons(false)}>
+        <Pressable style={styles.menuBackdrop} onPress={() => setShowReportReasons(false)}>
+          <View style={styles.menuSheet}>
+            <Text style={styles.menuTitle}>Report this post</Text>
+            {REPORT_REASONS.map((reason) => (
+              <Pressable key={reason} style={styles.menuOption} onPress={() => handleReport(reason)}>
+                <Text style={styles.menuOptionText}>{reason}</Text>
+              </Pressable>
+            ))}
+            <Pressable style={[styles.menuOption, { borderBottomWidth: 0 }]} onPress={() => setShowReportReasons(false)}>
+              <Text style={[styles.menuOptionText, { color: Colors.gray }]}>Cancel</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
+
+      {/* Toast */}
+      {toastVisible && (
+        <View style={styles.toast} pointerEvents="none">
+          <Text style={styles.toastText}>{toastMsg}</Text>
+        </View>
+      )}
 
       {/* Image (non-quote posts) */}
       {post.imageUrl && (
@@ -204,6 +329,9 @@ const styles = StyleSheet.create({
   container: { backgroundColor: Colors.black, paddingVertical: 12 },
 
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, marginBottom: 12 },
+  headerRight: { flexDirection: "row", alignItems: "center", gap: 8 },
+  menuButton: { padding: 4 },
+  menuIcon: { fontSize: 20, color: Colors.gray, letterSpacing: 1 },
   userInfo: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
   userText: { flex: 1 },
   usernameRow: { flexDirection: "row", alignItems: "center", gap: 5 },
@@ -253,4 +381,14 @@ const styles = StyleSheet.create({
   actionCount: { fontSize: 13, fontWeight: "600", color: Colors.gray },
   actionCountLiked: { color: "#EF4444" },
   actionButtonSaved: { backgroundColor: "rgba(250, 204, 21, 0.15)", borderRadius: 8, paddingHorizontal: 6 },
+
+  menuBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "flex-end" },
+  menuSheet: { backgroundColor: Colors.dark800, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingHorizontal: 20, paddingTop: 8, paddingBottom: 36 },
+  menuTitle: { fontSize: 13, fontWeight: "600", color: Colors.gray, textAlign: "center", paddingVertical: 12 },
+  menuOption: { paddingVertical: 16, borderBottomWidth: 0.5, borderBottomColor: Colors.dark700 },
+  menuOptionText: { fontSize: 17, color: Colors.white, textAlign: "center" },
+  destructiveText: { color: "#FF3B30" },
+
+  toast: { position: "absolute", bottom: 80, alignSelf: "center", backgroundColor: "rgba(30,30,30,0.95)", paddingHorizontal: 20, paddingVertical: 10, borderRadius: 20 },
+  toastText: { color: Colors.white, fontSize: 14, fontWeight: "600" },
 });
