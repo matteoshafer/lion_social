@@ -20,6 +20,7 @@ import { formatCount, type MockPost, type MockUser } from "../../src/constants/m
 import Avatar from "../../src/components/Avatar";
 import PostTypeBadge from "../../src/components/PostTypeBadge";
 import { supabase } from "../../src/lib/supabase";
+import { invalidateAppUserCache } from "../../src/lib/auth";
 import { sharePost } from "../../src/lib/share-post";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -67,19 +68,21 @@ async function fetchProfile(): Promise<ProfileData | null> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) return null;
 
+  // maybeSingle: "no row yet" is a valid state here (first login creates the record)
   const { data: appUser, error: userError } = await supabase
     .from("User")
     .select("id, username, bio, avatarUrl")
     .eq("supabaseId", session.user.id)
-    .single();
+    .maybeSingle();
 
   if (userError || !appUser) {
     await ensureUserRecord(session);
+    invalidateAppUserCache(); // a User row now exists; drop any cached "null"
     const { data: retried } = await supabase
       .from("User")
       .select("id, username, bio, avatarUrl")
       .eq("supabaseId", session.user.id)
-      .single();
+      .maybeSingle();
     if (!retried) return null;
     return fetchProfileForUser(retried as any);
   }
@@ -181,11 +184,21 @@ async function fetchLikedPosts(userId: string): Promise<MockPost[]> {
 }
 
 async function fetchProfileForUser(u: any): Promise<ProfileData | null> {
-  const [followersRes, followingRes, referralRes] = await Promise.all([
+  // All four queries are independent — run them in a single parallel batch
+  const [followersRes, followingRes, referralRes, postsRes] = await Promise.all([
     supabase.from("Follow").select("id", { count: "exact", head: true }).eq("followingId", u.id),
     supabase.from("Follow").select("id", { count: "exact", head: true }).eq("followerId", u.id),
     // Separate query so the profile still loads if the referralCode migration hasn't run yet
     supabase.from("User").select("referralCode").eq("id", u.id).single(),
+    supabase
+      .from("Post")
+      .select(`
+        id, caption, imageUrl, type, createdAt,
+        Like (id, userId),
+        Comment (id)
+      `)
+      .eq("userId", u.id)
+      .order("createdAt", { ascending: false }),
   ]);
 
   const referralCode: string | null = (referralRes.data as any)?.referralCode ?? null;
@@ -202,15 +215,7 @@ async function fetchProfileForUser(u: any): Promise<ProfileData | null> {
     isVerified: false,
   };
 
-  const { data: postsData, error: postsError } = await supabase
-    .from("Post")
-    .select(`
-      id, caption, imageUrl, type, createdAt,
-      Like (id, userId),
-      Comment (id)
-    `)
-    .eq("userId", u.id)
-    .order("createdAt", { ascending: false });
+  const { data: postsData, error: postsError } = postsRes;
 
   if (postsError || !postsData) return { user, posts: [], referralCode };
 

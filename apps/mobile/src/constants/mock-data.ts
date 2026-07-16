@@ -25,6 +25,7 @@ export interface MockPost {
   likesCount: number;
   commentsCount: number;
   isLiked: boolean;
+  isSaved?: boolean;
   createdAt: string;
 }
 

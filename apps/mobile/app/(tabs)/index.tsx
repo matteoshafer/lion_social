@@ -14,23 +14,14 @@ import Colors from "../../src/constants/colors";
 import { type MockPost } from "../../src/constants/mock-data";
 import PostCard from "../../src/components/PostCard";
 import { supabase } from "../../src/lib/supabase";
-
-async function fetchCurrentUserId(): Promise<string | null> {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session) return null;
-  const { data: appUser } = await supabase
-    .from("User")
-    .select("id")
-    .eq("supabaseId", session.user.id)
-    .single();
-  return (appUser as any)?.id ?? null;
-}
+import { getAppUserId } from "../../src/lib/auth";
 
 const POST_SELECT = `
   id, caption, imageUrl, type, createdAt, userId,
   User!inner (id, username, avatarUrl),
   Like (id, userId),
-  Comment (id)
+  Comment (id),
+  Save (id, userId)
 `;
 
 function scorePost(post: any): number {
@@ -62,6 +53,9 @@ function mapPost(p: any, currentUserId: string | null): MockPost {
     isLiked: currentUserId
       ? p.Like.some((l: any) => l.userId === currentUserId)
       : false,
+    isSaved: currentUserId
+      ? (p.Save ?? []).some((s: any) => s.userId === currentUserId)
+      : false,
     createdAt: p.createdAt,
   };
 }
@@ -83,41 +77,48 @@ async function fetchFeedPosts(currentUserId: string | null): Promise<MockPost[]>
     return (data as any[]).map((p) => mapPost(p, null));
   }
 
-  // Step 1: who does the current user follow?
-  const { data: follows } = await supabase
-    .from("Follow")
-    .select("followingId")
-    .eq("followerId", currentUserId);
+  // Step 1: who does the current user follow? (blocked list is independent —
+  // fetch it in parallel instead of after the feed queries)
+  const [{ data: follows }, blockedIds] = await Promise.all([
+    supabase.from("Follow").select("followingId").eq("followerId", currentUserId),
+    fetchBlockedIds(currentUserId),
+  ]);
   const followingIds = (follows ?? []).map((f: any) => f.followingId);
+
+  // Tier 1 (following, weighted) and Tier 2 (discovery) are independent —
+  // run both queries in parallel.
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 36e5).toISOString();
+  const excludedUserIds = [currentUserId, ...followingIds];
+
+  const [tier1Res, tier2Res] = await Promise.all([
+    followingIds.length > 0
+      ? supabase
+          .from("Post")
+          .select(POST_SELECT)
+          .in("userId", followingIds)
+          .order("createdAt", { ascending: false })
+          .limit(50)
+      : Promise.resolve({ data: [] as any[] }),
+    supabase
+      .from("Post")
+      .select(POST_SELECT)
+      .gte("createdAt", sevenDaysAgo)
+      .not("userId", "in", `(${excludedUserIds.join(",")})`)
+      .order("createdAt", { ascending: false })
+      .limit(50),
+  ]);
 
   // Tier 1 — Following (weighted): last 50 posts from followed users,
   // scored by engagement + recency, top 20
-  let tier1: any[] = [];
-  if (followingIds.length > 0) {
-    const { data } = await supabase
-      .from("Post")
-      .select(POST_SELECT)
-      .in("userId", followingIds)
-      .order("createdAt", { ascending: false })
-      .limit(50);
-    tier1 = ((data ?? []) as any[])
-      .map((p) => ({ post: p, score: scorePost(p) }))
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 20)
-      .map((x) => x.post);
-  }
+  const tier1 = ((tier1Res.data ?? []) as any[])
+    .map((p) => ({ post: p, score: scorePost(p) }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 20)
+    .map((x) => x.post);
 
   // Tier 2 — Discovery: most-liked posts from the past 7 days,
   // excluding followed users, self, and Tier 1 posts; top 10
-  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 36e5).toISOString();
-  const excludedUserIds = [currentUserId, ...followingIds];
-  const { data: discoveryData } = await supabase
-    .from("Post")
-    .select(POST_SELECT)
-    .gte("createdAt", sevenDaysAgo)
-    .not("userId", "in", `(${excludedUserIds.join(",")})`)
-    .order("createdAt", { ascending: false })
-    .limit(50);
+  const discoveryData = tier2Res.data;
 
   const tier1Ids = new Set(tier1.map((p) => p.id));
   const tier2 = ((discoveryData ?? []) as any[])
@@ -134,7 +135,6 @@ async function fetchFeedPosts(currentUserId: string | null): Promise<MockPost[]>
     combined.push(p);
   }
 
-  const blockedIds = await fetchBlockedIds(currentUserId);
   return combined
     .filter((p) => !blockedIds.has(p.userId ?? p.User?.id))
     .slice(0, 30)
@@ -152,7 +152,7 @@ export default function HomeScreen() {
     let cancelled = false;
     async function load() {
       setLoading(true);
-      const uid = await fetchCurrentUserId();
+      const uid = await getAppUserId();
       if (!cancelled) setCurrentUserId(uid);
       const result = await fetchFeedPosts(uid);
       if (!cancelled) { setPosts(result); setLoading(false); }
@@ -190,6 +190,7 @@ export default function HomeScreen() {
     <PostCard
       post={item}
       currentUserId={currentUserId}
+      initialSaved={item.isSaved}
       onBlock={(blockedUserId) => setPosts((prev) => prev.filter((p) => p.userId !== blockedUserId))}
       onDelete={() => setPosts((prev) => prev.filter((p) => p.id !== item.id))}
     />

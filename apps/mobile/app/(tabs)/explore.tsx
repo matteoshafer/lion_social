@@ -18,6 +18,7 @@ import { useRouter } from "expo-router";
 import Colors, { PostTypeColors } from "../../src/constants/colors";
 import { CATEGORIES, type MockPost } from "../../src/constants/mock-data";
 import { supabase } from "../../src/lib/supabase";
+import { getAppUserId } from "../../src/lib/auth";
 import Avatar from "../../src/components/Avatar";
 import { sharePost } from "../../src/lib/share-post";
 
@@ -108,24 +109,22 @@ export default function ExploreScreen() {
     };
   }, [searchQuery]);
 
-  useEffect(() => {
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (!session) return;
-      const { data: appUser } = await supabase.from("User").select("id").eq("supabaseId", session.user.id).single();
-      if (appUser) setAppUserId((appUser as any).id);
-    });
-  }, []);
-
+  // Resolve the app user (cached) first, then fetch posts once.
+  // Previously this was two effects and the 60-post query ran twice
+  // (once with a null user, again after the user resolved).
   useEffect(() => {
     let cancelled = false;
     async function load() {
       setLoading(true);
-      const result = await fetchExplorePosts(appUserId);
+      const uid = await getAppUserId();
+      if (cancelled) return;
+      setAppUserId(uid);
+      const result = await fetchExplorePosts(uid);
       if (!cancelled) { setPosts(result); setLoading(false); }
     }
     load();
     return () => { cancelled = true; };
-  }, [appUserId]);
+  }, []);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);

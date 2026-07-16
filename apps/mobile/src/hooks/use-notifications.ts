@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "../lib/supabase";
+import { getAppUserId } from "../lib/auth";
 
 export interface RealNotification {
   id: string;
@@ -48,7 +49,10 @@ export function useNotifications() {
       .from("Notification")
       .select("id, type, referenceId, read, createdAt")
       .eq("userId", userId)
-      .order("createdAt", { ascending: false });
+      .order("createdAt", { ascending: false })
+      // Cap the list — this refetches on realtime events and every 30s,
+      // so pulling the full history each time adds up fast.
+      .limit(100);
 
     if (!rows?.length) {
       setNotifications([]);
@@ -71,27 +75,15 @@ export function useNotifications() {
     setLoading(false);
   }, []);
 
-  // Resolve auth session → app User.id on mount
+  // Resolve auth session → app User.id on mount (cached across screens)
   useEffect(() => {
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (!session) {
+    getAppUserId().then(async (userId) => {
+      if (!userId) {
         setLoading(false);
         return;
       }
-
-      const { data: appUser } = await supabase
-        .from("User")
-        .select("id")
-        .eq("supabaseId", session.user.id)
-        .single();
-
-      if (!appUser) {
-        setLoading(false);
-        return;
-      }
-
-      setAppUserId(appUser.id);
-      await fetchNotifications(appUser.id);
+      setAppUserId(userId);
+      await fetchNotifications(userId);
     });
   }, [fetchNotifications]);
 

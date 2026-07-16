@@ -13,6 +13,7 @@ import {
 import { useRouter } from "expo-router";
 import Colors from "../constants/colors";
 import { supabase } from "../lib/supabase";
+import { getAppUserId } from "../lib/auth";
 import { type MockPost, getRelativeTime, formatCount } from "../constants/mock-data";
 import Avatar from "./Avatar";
 import PostTypeBadge from "./PostTypeBadge";
@@ -23,17 +24,20 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window");
 interface PostCardProps {
   post: MockPost;
   currentUserId?: string | null;
+  /** Save state resolved by the parent (e.g. included in the feed query).
+   *  When provided, PostCard skips its own Save lookup entirely. */
+  initialSaved?: boolean;
   onBlock?: (blockedUserId: string) => void;
   onDelete?: () => void;
 }
 
 const REPORT_REASONS = ["Spam", "Inappropriate content", "Harassment", "False information", "Other"];
 
-export default function PostCard({ post, currentUserId, onBlock, onDelete }: PostCardProps) {
+export default function PostCard({ post, currentUserId, initialSaved, onBlock, onDelete }: PostCardProps) {
   const router = useRouter();
   const [isLiked, setIsLiked] = useState(post.isLiked);
   const [likesCount, setLikesCount] = useState(post.likesCount);
-  const [isSaved, setIsSaved] = useState(false);
+  const [isSaved, setIsSaved] = useState(initialSaved ?? false);
   const [appUserId, setAppUserId] = useState<string | null>(currentUserId ?? null);
   const [showMenu, setShowMenu] = useState(false);
   const [showReportReasons, setShowReportReasons] = useState(false);
@@ -57,28 +61,33 @@ export default function PostCard({ post, currentUserId, onBlock, onDelete }: Pos
   }, [post.isLiked, post.likesCount]);
 
   useEffect(() => {
+    if (initialSaved !== undefined) setIsSaved(initialSaved);
+  }, [initialSaved]);
+
+  useEffect(() => {
     const uid = currentUserId ?? null;
     if (uid) {
-      // Parent provided userId — just check save state (like state comes from feed)
       setAppUserId(uid);
-      supabase.from("Save").select("id").eq("postId", post.id).eq("userId", uid).maybeSingle()
-        .then(({ data }) => setIsSaved(!!data));
+      // Save state comes from the parent's feed query when available —
+      // only fall back to a per-card lookup if the parent didn't provide it.
+      if (initialSaved === undefined) {
+        supabase.from("Save").select("id").eq("postId", post.id).eq("userId", uid).maybeSingle()
+          .then(({ data }) => setIsSaved(!!data));
+      }
     } else {
-      // Fallback: fetch from session
-      supabase.auth.getSession().then(async ({ data: { session } }) => {
-        if (!session) return;
-        const { data: appUser } = await supabase.from("User").select("id").eq("supabaseId", session.user.id).single();
-        if (!appUser) return;
-        setAppUserId((appUser as any).id);
+      // Fallback: resolve the app user via the shared session cache
+      getAppUserId().then(async (appUserIdResolved) => {
+        if (!appUserIdResolved) return;
+        setAppUserId(appUserIdResolved);
         const [{ data: like }, { data: save }] = await Promise.all([
-          supabase.from("Like").select("id").eq("postId", post.id).eq("userId", (appUser as any).id).maybeSingle(),
-          supabase.from("Save").select("id").eq("postId", post.id).eq("userId", (appUser as any).id).maybeSingle(),
+          supabase.from("Like").select("id").eq("postId", post.id).eq("userId", appUserIdResolved).maybeSingle(),
+          supabase.from("Save").select("id").eq("postId", post.id).eq("userId", appUserIdResolved).maybeSingle(),
         ]);
         setIsLiked(!!like);
         setIsSaved(!!save);
       });
     }
-  }, [post.id, currentUserId]);
+  }, [post.id, currentUserId, initialSaved]);
 
   const handleSave = async () => {
     if (!appUserId) return;

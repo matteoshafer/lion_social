@@ -9,6 +9,7 @@ import { useRouter } from "expo-router";
 import Colors from "../../src/constants/colors";
 import Avatar from "../../src/components/Avatar";
 import { supabase } from "../../src/lib/supabase";
+import { getAppUserId } from "../../src/lib/auth";
 import { getRelativeTime } from "../../src/constants/mock-data";
 
 interface Conversation {
@@ -45,7 +46,10 @@ async function fetchConversations(currentUserId: string): Promise<Conversation[]
       recipient:User!recipientId (id, username, displayName, avatarUrl)
     `)
     .or(`senderId.eq.${currentUserId},recipientId.eq.${currentUserId}`)
-    .order("createdAt", { ascending: false });
+    .order("createdAt", { ascending: false })
+    // Cap the fetch: the inbox only needs recent messages to build the
+    // conversation list, not the user's entire message history.
+    .limit(500);
 
   if (error || !data) return [];
 
@@ -79,30 +83,40 @@ async function fetchGroups(currentUserId: string): Promise<GroupItem[]> {
 
   const groupIds = (memberships as any[]).map((m) => m.groupId);
 
-  const { data: memberCounts } = await supabase
-    .from("GroupMember")
-    .select("groupId")
-    .in("groupId", groupIds);
+  // Member counts + recent messages for ALL groups in two batched queries
+  // (previously this ran one GroupMessage query per group — N+1).
+  const [{ data: memberCounts }, { data: recentMsgs }] = await Promise.all([
+    supabase.from("GroupMember").select("groupId").in("groupId", groupIds),
+    supabase
+      .from("GroupMessage")
+      .select("groupId, content, createdAt, User!senderId (username)")
+      .in("groupId", groupIds)
+      .order("createdAt", { ascending: false })
+      .limit(Math.max(100, groupIds.length * 5)),
+  ]);
+
+  // Latest message per group (rows arrive newest-first)
+  const lastMsgByGroup = new Map<string, any>();
+  for (const msg of (recentMsgs ?? []) as any[]) {
+    if (!lastMsgByGroup.has(msg.groupId)) lastMsgByGroup.set(msg.groupId, msg);
+  }
+
+  const countByGroup = new Map<string, number>();
+  for (const mc of (memberCounts ?? []) as any[]) {
+    countByGroup.set(mc.groupId, (countByGroup.get(mc.groupId) ?? 0) + 1);
+  }
 
   const groups: GroupItem[] = [];
   for (const m of memberships as any[]) {
     const gc = m.GroupChat;
     if (!gc) continue;
 
-    const { data: lastMsgArr } = await supabase
-      .from("GroupMessage")
-      .select("content, createdAt, User!senderId (username)")
-      .eq("groupId", m.groupId)
-      .order("createdAt", { ascending: false })
-      .limit(1);
-
-    const lastMsg = lastMsgArr?.[0] as any;
-    const count = (memberCounts || []).filter((mc: any) => mc.groupId === m.groupId).length;
+    const lastMsg = lastMsgByGroup.get(m.groupId);
 
     groups.push({
       id: gc.id,
       name: gc.name,
-      memberCount: count,
+      memberCount: countByGroup.get(m.groupId) ?? 0,
       lastMessage: lastMsg
         ? `${lastMsg.User?.username}: ${lastMsg.content}`
         : "No messages yet",
@@ -144,13 +158,7 @@ export default function MessagesScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [searchFocused, setSearchFocused] = useState(false);
 
-  const loadCurrentUser = useCallback(async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return null;
-    const { data } = await supabase
-      .from("User").select("id").eq("supabaseId", session.user.id).single();
-    return (data as any)?.id ?? null;
-  }, []);
+  const loadCurrentUser = useCallback(() => getAppUserId(), []);
 
   const loadAll = useCallback(async (userId: string) => {
     const [convs, grps] = await Promise.all([

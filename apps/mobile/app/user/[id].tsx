@@ -10,6 +10,7 @@ import { formatCount, type MockPost, type MockUser } from "../../src/constants/m
 import Avatar from "../../src/components/Avatar";
 import PostTypeBadge from "../../src/components/PostTypeBadge";
 import { supabase } from "../../src/lib/supabase";
+import { getAppUserId } from "../../src/lib/auth";
 import { sharePost } from "../../src/lib/share-post";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -21,20 +22,27 @@ const REFERRAL_SHARE_LINK = "https://testflight.apple.com/join/ArPDp7sU";
 type UserProfileData = { user: MockUser; posts: MockPost[]; referralCode: string | null };
 
 async function fetchUserProfile(userId: string): Promise<UserProfileData | null> {
+  // maybeSingle: a missing user is a valid state (renders "User not found")
   const { data: u, error } = await supabase
     .from("User")
     .select("id, username, bio, avatarUrl")
     .eq("id", userId)
-    .single();
+    .maybeSingle();
 
   if (error || !u) return null;
   const row = u as any;
 
-  const [followersRes, followingRes, referralRes] = await Promise.all([
+  // Counts, referral code, and posts are all independent — one parallel batch
+  const [followersRes, followingRes, referralRes, postsRes] = await Promise.all([
     supabase.from("Follow").select("id", { count: "exact", head: true }).eq("followingId", row.id),
     supabase.from("Follow").select("id", { count: "exact", head: true }).eq("followerId", row.id),
     // Separate query so the profile still loads if the referralCode migration hasn't run yet
     supabase.from("User").select("referralCode").eq("id", row.id).single(),
+    supabase
+      .from("Post")
+      .select("id, caption, imageUrl, type, createdAt, Like (id, userId), Comment (id)")
+      .eq("userId", row.id)
+      .order("createdAt", { ascending: false }),
   ]);
 
   const referralCode: string | null = (referralRes.data as any)?.referralCode ?? null;
@@ -51,11 +59,7 @@ async function fetchUserProfile(userId: string): Promise<UserProfileData | null>
     isVerified: false,
   };
 
-  const { data: postsData } = await supabase
-    .from("Post")
-    .select("id, caption, imageUrl, type, createdAt, Like (id, userId), Comment (id)")
-    .eq("userId", row.id)
-    .order("createdAt", { ascending: false });
+  const { data: postsData } = postsRes;
 
   const posts: MockPost[] = ((postsData ?? []) as any[]).map((p) => ({
     id: p.id,
@@ -127,13 +131,9 @@ export default function UserProfileScreen() {
 
   useEffect(() => {
     load();
-    // Check if current user follows this profile
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (!session) return;
-      const { data: appUser } = await supabase
-        .from("User").select("id").eq("supabaseId", session.user.id).single();
-      if (!appUser) return;
-      const uid = (appUser as any).id;
+    // Check if current user follows this profile (app user id is cached)
+    getAppUserId().then(async (uid) => {
+      if (!uid) return;
       setAppUserId(uid);
       const { data: follow } = await supabase
         .from("Follow").select("id").eq("followerId", uid).eq("followingId", id).maybeSingle();

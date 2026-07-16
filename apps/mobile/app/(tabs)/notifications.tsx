@@ -14,6 +14,7 @@ import Colors from "../../src/constants/colors";
 import { getRelativeTime } from "../../src/constants/mock-data";
 import Avatar from "../../src/components/Avatar";
 import { supabase } from "../../src/lib/supabase";
+import { getAppUserId } from "../../src/lib/auth";
 import { useNotifications, type RealNotification } from "../../src/hooks/use-notifications";
 
 const NOTIFICATION_ICONS: Record<string, string> = {
@@ -50,15 +51,12 @@ export default function NotificationsScreen() {
 
     let cancelled = false;
     (async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
-      const { data: me } = await supabase
-        .from("User").select("id").eq("supabaseId", session.user.id).single();
-      if (!me) return;
+      const myId = await getAppUserId();
+      if (!myId) return;
       const { data: follows } = await supabase
         .from("Follow")
         .select("followingId")
-        .eq("followerId", me.id)
+        .eq("followerId", myId)
         .in("followingId", followActorIds);
       if (!cancelled && follows) {
         setFollowingSet((prev) => {
@@ -97,18 +95,14 @@ export default function NotificationsScreen() {
     });
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error("Not authenticated");
-
-      const { data: me } = await supabase
-        .from("User").select("id").eq("supabaseId", session.user.id).single();
-      if (!me) throw new Error("User not found");
+      const myId = await getAppUserId();
+      if (!myId) throw new Error("Not authenticated");
 
       if (willFollow) {
-        await supabase.from("Follow").insert({ followerId: me.id, followingId: actorId });
+        await supabase.from("Follow").insert({ followerId: myId, followingId: actorId });
       } else {
         await supabase.from("Follow").delete()
-          .eq("followerId", me.id).eq("followingId", actorId);
+          .eq("followerId", myId).eq("followingId", actorId);
       }
     } catch {
       // Revert on error

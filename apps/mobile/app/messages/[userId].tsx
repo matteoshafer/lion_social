@@ -8,6 +8,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import Colors from "../../src/constants/colors";
 import Avatar from "../../src/components/Avatar";
 import { supabase } from "../../src/lib/supabase";
+import { getAppUserId } from "../../src/lib/auth";
 import { getRelativeTime } from "../../src/constants/mock-data";
 
 interface Message {
@@ -38,14 +39,14 @@ export default function MessageThreadScreen() {
   const [sending, setSending] = useState(false);
   const [inputFocused, setInputFocused] = useState(false);
 
-  // Load current user + other user info
+  // Load current user (cached) + other user info in parallel
   useEffect(() => {
     async function init() {
       const otherPromise = supabase
         .from("User")
         .select("id, username, displayName, avatarUrl")
         .eq("id", otherUserId)
-        .single()
+        .maybeSingle()
         .then(({ data: other }) => {
           if (other) {
             setOtherUser({
@@ -57,22 +58,12 @@ export default function MessageThreadScreen() {
           }
         });
 
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        await otherPromise;
+      const [myId] = await Promise.all([getAppUserId(), otherPromise]);
+      if (!myId) {
         setLoading(false);
         return;
       }
-
-      const { data: me } = await supabase
-        .from("User").select("id").eq("supabaseId", session.user.id).single();
-      if (!me) {
-        await otherPromise;
-        setLoading(false);
-        return;
-      }
-      setCurrentUserId((me as any).id);
-      await otherPromise;
+      setCurrentUserId(myId);
     }
     init();
   }, [otherUserId]);

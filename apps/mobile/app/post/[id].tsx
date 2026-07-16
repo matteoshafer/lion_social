@@ -21,6 +21,7 @@ import { getRelativeTime, formatCount } from "../../src/constants/mock-data";
 import Avatar from "../../src/components/Avatar";
 import PostTypeBadge from "../../src/components/PostTypeBadge";
 import { supabase } from "../../src/lib/supabase";
+import { getAppUser } from "../../src/lib/auth";
 import { sharePost } from "../../src/lib/share-post";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -78,7 +79,7 @@ export default function PostDetailScreen() {
         Comment (id)
       `)
       .eq("id", id)
-      .single();
+      .maybeSingle();
 
     if (error || !data) {
       console.error("[PostDetail] fetchPost error:", error?.message);
@@ -136,37 +137,24 @@ export default function PostDetailScreen() {
   }, [id]);
 
   // Record view + load data on mount.
-  // Session is fetched once, then post data and like/save status load in parallel.
+  // Post and comments don't depend on auth, so they start immediately;
+  // like/save status loads in parallel once the (cached) app user resolves.
   useEffect(() => {
     supabase.rpc("increment_post_view", { post_id: id }).then(({ error }) => {
       if (error) console.error("[PostDetail] increment_post_view error:", error.message);
-      else console.log("[PostDetail] View recorded for:", id);
     });
 
+    fetchPost();
     fetchComments();
 
     (async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        fetchPost();
-        return;
-      }
-      const { data: appUser } = await supabase
-        .from("User")
-        .select("id, username")
-        .eq("supabaseId", session.user.id)
-        .single();
-      if (!appUser) {
-        fetchPost();
-        return;
-      }
-      const uid = (appUser as any).id;
-      setAppUserId(uid);
-      setCurrentUsername((appUser as any).username);
-      const [, { data: like }, { data: save }] = await Promise.all([
-        fetchPost(),
-        supabase.from("Like").select("id").eq("postId", id).eq("userId", uid).maybeSingle(),
-        supabase.from("Save").select("id").eq("postId", id).eq("userId", uid).maybeSingle(),
+      const me = await getAppUser();
+      if (!me) return;
+      setAppUserId(me.id);
+      setCurrentUsername(me.username ?? "you");
+      const [{ data: like }, { data: save }] = await Promise.all([
+        supabase.from("Like").select("id").eq("postId", id).eq("userId", me.id).maybeSingle(),
+        supabase.from("Save").select("id").eq("postId", id).eq("userId", me.id).maybeSingle(),
       ]);
       setIsLiked(!!like);
       setIsSaved(!!save);
