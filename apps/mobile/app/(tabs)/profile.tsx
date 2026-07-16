@@ -26,7 +26,7 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const GRID_GAP = 2;
 const GRID_ITEM_SIZE = (SCREEN_WIDTH - GRID_GAP * 2) / 3;
 
-type ProfileTab = "posts" | "saved";
+type ProfileTab = "posts" | "liked" | "saved";
 
 async function ensureUserRecord(session: { user: { id: string; email?: string; user_metadata?: any } }) {
   const username = (session.user.user_metadata?.username as string) ?? session.user.email?.split("@")[0] ?? "user";
@@ -133,6 +133,53 @@ async function fetchSavedPosts(userId: string): Promise<MockPost[]> {
     });
 }
 
+async function fetchLikedPosts(userId: string): Promise<MockPost[]> {
+  const { data, error } = await supabase
+    .from("Like")
+    .select(`
+      createdAt,
+      Post!inner (
+        id, caption, imageUrl, type, createdAt, userId,
+        User!inner (id, username, avatarUrl),
+        Like (id, userId),
+        Comment (id)
+      )
+    `)
+    .eq("userId", userId)
+    .order("createdAt", { ascending: false })
+    .limit(50);
+
+  if (error || !data) return [];
+
+  return (data as any[])
+    .filter((l) => l.Post)
+    .map((l) => {
+      const p = l.Post;
+      return {
+        id: p.id,
+        userId: p.userId,
+        user: {
+          id: p.User?.id ?? p.userId,
+          username: p.User?.username ?? "user",
+          displayName: p.User?.username ?? "user",
+          avatarUrl: p.User?.avatarUrl ?? null,
+          bio: "",
+          followersCount: 0,
+          followingCount: 0,
+          postsCount: 0,
+          isVerified: false,
+        },
+        type: p.type as MockPost["type"],
+        caption: p.caption,
+        imageUrl: p.imageUrl ?? null,
+        likesCount: (p.Like ?? []).length,
+        commentsCount: (p.Comment ?? []).length,
+        isLiked: true,
+        createdAt: p.createdAt,
+      };
+    });
+}
+
 async function fetchProfileForUser(u: any): Promise<ProfileData | null> {
   const [followersRes, followingRes, referralRes] = await Promise.all([
     supabase.from("Follow").select("id", { count: "exact", head: true }).eq("followingId", u.id),
@@ -194,6 +241,8 @@ export default function ProfileScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [savedPosts, setSavedPosts] = useState<MockPost[]>([]);
   const [savedLoading, setSavedLoading] = useState(false);
+  const [likedPosts, setLikedPosts] = useState<MockPost[]>([]);
+  const [likedLoading, setLikedLoading] = useState(false);
   const [referralCode, setReferralCode] = useState<string | null>(null);
   const [editingCode, setEditingCode] = useState(false);
   const [codeDraft, setCodeDraft] = useState("");
@@ -223,11 +272,25 @@ export default function ProfileScreen() {
     return () => { cancelled = true; };
   }, [activeTab, currentUser]);
 
+  // Load liked posts when the Liked tab is opened
+  useEffect(() => {
+    if (activeTab !== "liked" || !currentUser) return;
+    let cancelled = false;
+    setLikedLoading(true);
+    fetchLikedPosts(currentUser.id).then((posts) => {
+      if (!cancelled) { setLikedPosts(posts); setLikedLoading(false); }
+    });
+    return () => { cancelled = true; };
+  }, [activeTab, currentUser]);
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await load();
     if (activeTab === "saved" && currentUser) {
       setSavedPosts(await fetchSavedPosts(currentUser.id));
+    }
+    if (activeTab === "liked" && currentUser) {
+      setLikedPosts(await fetchLikedPosts(currentUser.id));
     }
     setRefreshing(false);
   }, [load, activeTab, currentUser]);
@@ -291,7 +354,8 @@ export default function ProfileScreen() {
     setSavingCode(false);
   }, [currentUser, savingCode, codeDraft, referralCode]);
 
-  const displayPosts = activeTab === "posts" ? userPosts : savedPosts;
+  const displayPosts =
+    activeTab === "posts" ? userPosts : activeTab === "liked" ? likedPosts : savedPosts;
 
   if (loading) {
     return (
@@ -436,6 +500,12 @@ export default function ProfileScreen() {
             <Text style={[styles.tabText, activeTab === "posts" && styles.tabTextActive]}>Posts</Text>
           </Pressable>
           <Pressable
+            onPress={() => setActiveTab("liked")}
+            style={[styles.tab, activeTab === "liked" && styles.tabActive]}
+          >
+            <Text style={[styles.tabText, activeTab === "liked" && styles.tabTextActive]}>Liked</Text>
+          </Pressable>
+          <Pressable
             onPress={() => setActiveTab("saved")}
             style={[styles.tab, activeTab === "saved" && styles.tabActive]}
           >
@@ -444,7 +514,7 @@ export default function ProfileScreen() {
         </View>
 
         {/* Post Grid */}
-        {activeTab === "saved" && savedLoading ? (
+        {(activeTab === "saved" && savedLoading) || (activeTab === "liked" && likedLoading) ? (
           <View style={styles.emptyGrid}>
             <ActivityIndicator size="large" color={Colors.gold} />
           </View>
@@ -480,13 +550,21 @@ export default function ProfileScreen() {
           </View>
         ) : (
           <View style={styles.emptyGrid}>
-            <Text style={styles.emptyIcon}>{activeTab === "saved" ? "📌" : "📷"}</Text>
+            <Text style={styles.emptyIcon}>
+              {activeTab === "saved" ? "📌" : activeTab === "liked" ? "❤️" : "📷"}
+            </Text>
             <Text style={styles.emptyTitle}>
-              {activeTab === "saved" ? "No saved posts" : "No posts yet"}
+              {activeTab === "saved"
+                ? "No saved posts"
+                : activeTab === "liked"
+                ? "No liked posts yet"
+                : "No posts yet"}
             </Text>
             <Text style={styles.emptySubtitle}>
               {activeTab === "saved"
                 ? "Save posts to revisit your favorite content"
+                : activeTab === "liked"
+                ? "Posts you like will appear here"
                 : "Share your first post with the community"}
             </Text>
           </View>
