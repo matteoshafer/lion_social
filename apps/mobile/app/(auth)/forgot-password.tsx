@@ -13,6 +13,7 @@ export default function ForgotPasswordScreen() {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
+  const [emailFocused, setEmailFocused] = useState(false);
 
   const handleSendResetLink = async () => {
     const trimmed = email.trim().toLowerCase();
@@ -60,9 +61,11 @@ export default function ForgotPasswordScreen() {
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>EMAIL</Text>
               <TextInput
-                style={styles.input}
+                style={[styles.input, emailFocused && styles.inputFocused]}
                 value={email}
                 onChangeText={setEmail}
+                onFocus={() => setEmailFocused(true)}
+                onBlur={() => setEmailFocused(false)}
                 placeholder="you@example.com"
                 placeholderTextColor={Colors.grayDark}
                 keyboardType="email-address"
@@ -128,6 +131,7 @@ const styles = StyleSheet.create({
     paddingVertical: 16, fontSize: 15, color: Colors.white,
     borderWidth: 1, borderColor: Colors.dark700,
   },
+  inputFocused: { borderColor: Colors.gold },
 
   primaryButton: {
     backgroundColor: Colors.gold, borderRadius: 16, paddingVertical: 18,
@@ -135,7 +139,7 @@ const styles = StyleSheet.create({
     shadowColor: Colors.gold, shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3, shadowRadius: 12, elevation: 8,
   },
-  buttonDisabled: { opacity: 0.7 },
+  buttonDisabled: { opacity: 0.5 },
   primaryButtonText: { fontSize: 16, fontWeight: "800", color: Colors.black, letterSpacing: 1.5 },
 
   sentText: { fontSize: 14, color: Colors.success, textAlign: "center", marginTop: 16 },

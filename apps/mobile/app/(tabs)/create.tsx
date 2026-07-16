@@ -155,6 +155,7 @@ export default function CreateScreen() {
   const [workoutNotes, setWorkoutNotes] = useState("");
   const [focusedExercise, setFocusedExercise] = useState<number | null>(null);
   const [focusedIngredient, setFocusedIngredient] = useState<number | null>(null);
+  const [focusedField, setFocusedField] = useState<string | null>(null);
 
   // Meal state
   const [mealName, setMealName] = useState("");
@@ -200,7 +201,15 @@ export default function CreateScreen() {
   };
 
   const isValid = (): boolean => {
-    return selectedType !== null;
+    if (selectedType === null) return false;
+    // Require actual content per post type so empty posts can't be shared
+    if (selectedType === "workout") {
+      return exercises.some((ex) => ex.name.trim().length > 0) || workoutNotes.trim().length > 0;
+    }
+    if (selectedType === "meal") {
+      return mealName.trim().length > 0 || ingredients.some((i) => i.trim().length > 0);
+    }
+    return caption.trim().length > 0;
   };
 
   const handleSubmit = async () => {
@@ -213,7 +222,13 @@ export default function CreateScreen() {
       if (!appUser) { Alert.alert("Error", "Could not find your account."); return; }
 
       let imageUrl: string | null = null;
-      if (imageUri) imageUrl = await uploadImage(imageUri, (appUser as any).id);
+      if (imageUri) {
+        imageUrl = await uploadImage(imageUri, (appUser as any).id);
+        if (!imageUrl) {
+          Alert.alert("Image upload failed", "Check your connection and try again. Your post was not shared.");
+          return;
+        }
+      }
 
       const now = new Date().toISOString();
       const postId = "c" + Math.random().toString(36).substring(2, 26);
@@ -294,7 +309,7 @@ export default function CreateScreen() {
                   <View key={index} style={styles.exerciseWrapper}>
                     <View style={styles.exerciseRow}>
                       <TextInput
-                        style={[styles.input, styles.exerciseName]}
+                        style={[styles.input, styles.exerciseName, focusedExercise === index && styles.inputFocused]}
                         placeholder="Exercise name"
                         placeholderTextColor={Colors.grayDark}
                         value={ex.name}
@@ -322,7 +337,7 @@ export default function CreateScreen() {
                         selectionColor={Colors.gold}
                       />
                       {exercises.length > 1 && (
-                        <Pressable onPress={() => removeExercise(index)} style={styles.removeBtn}>
+                        <Pressable onPress={() => removeExercise(index)} style={styles.removeBtn} hitSlop={8}>
                           <Text style={styles.removeBtnText}>✕</Text>
                         </Pressable>
                       )}
@@ -344,11 +359,13 @@ export default function CreateScreen() {
               <View style={styles.section}>
                 <Text style={styles.sectionLabel}>NOTES (OPTIONAL)</Text>
                 <TextInput
-                  style={[styles.input, styles.notesInput]}
+                  style={[styles.input, styles.notesInput, focusedField === "workoutNotes" && styles.inputFocused]}
                   placeholder="How did it go? PRs, feelings, observations..."
                   placeholderTextColor={Colors.grayDark}
                   value={workoutNotes}
                   onChangeText={setWorkoutNotes}
+                  onFocus={() => setFocusedField("workoutNotes")}
+                  onBlur={() => setFocusedField(null)}
                   multiline
                   selectionColor={Colors.gold}
                 />
@@ -362,11 +379,13 @@ export default function CreateScreen() {
               <View style={styles.section}>
                 <Text style={styles.sectionLabel}>MEAL NAME</Text>
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, focusedField === "mealName" && styles.inputFocused]}
                   placeholder="e.g. Post-workout chicken bowl"
                   placeholderTextColor={Colors.grayDark}
                   value={mealName}
                   onChangeText={setMealName}
+                  onFocus={() => setFocusedField("mealName")}
+                  onBlur={() => setFocusedField(null)}
                   selectionColor={Colors.gold}
                 />
               </View>
@@ -377,7 +396,7 @@ export default function CreateScreen() {
                   <View key={index} style={styles.exerciseWrapper}>
                     <View style={styles.ingredientRow}>
                       <TextInput
-                        style={[styles.input, { flex: 1, marginBottom: 0 }]}
+                        style={[styles.input, { flex: 1, marginBottom: 0 }, focusedIngredient === index && styles.inputFocused]}
                         placeholder={`Ingredient ${index + 1}`}
                         placeholderTextColor={Colors.grayDark}
                         value={ing}
@@ -387,7 +406,7 @@ export default function CreateScreen() {
                         selectionColor={Colors.gold}
                       />
                       {ingredients.length > 1 && (
-                        <Pressable onPress={() => removeIngredient(index)} style={styles.removeBtn}>
+                        <Pressable onPress={() => removeIngredient(index)} style={styles.removeBtn} hitSlop={8}>
                           <Text style={styles.removeBtnText}>✕</Text>
                         </Pressable>
                       )}
@@ -435,11 +454,13 @@ export default function CreateScreen() {
               <View style={styles.section}>
                 <Text style={styles.sectionLabel}>NOTES (OPTIONAL)</Text>
                 <TextInput
-                  style={[styles.input, styles.notesInput]}
+                  style={[styles.input, styles.notesInput, focusedField === "mealNotes" && styles.inputFocused]}
                   placeholder="Prep tips, taste, how you felt..."
                   placeholderTextColor={Colors.grayDark}
                   value={mealNotes}
                   onChangeText={setMealNotes}
+                  onFocus={() => setFocusedField("mealNotes")}
+                  onBlur={() => setFocusedField(null)}
                   multiline
                   selectionColor={Colors.gold}
                 />
@@ -453,13 +474,15 @@ export default function CreateScreen() {
               <Text style={styles.sectionLabel}>
                 {selectedType === "quote" ? "YOUR QUOTE" : "YOUR ENTRY"}
               </Text>
-              <View style={styles.captionContainer}>
+              <View style={[styles.captionContainer, focusedField === "caption" && styles.inputFocused]}>
                 <TextInput
                   style={styles.captionInput}
                   placeholder={selectedType === "quote" ? "Share words that inspire you..." : "Tell your story, your journey, your why..."}
                   placeholderTextColor={Colors.grayDark}
                   value={caption}
                   onChangeText={setCaption}
+                  onFocus={() => setFocusedField("caption")}
+                  onBlur={() => setFocusedField(null)}
                   multiline
                   maxLength={500}
                   textAlignVertical="top"
@@ -478,7 +501,7 @@ export default function CreateScreen() {
                 {imageUri ? (
                   <>
                     <Image source={{ uri: imageUri }} style={styles.imagePreview} resizeMode="cover" />
-                    <Pressable style={styles.removeImage} onPress={() => setImageUri(null)}>
+                    <Pressable style={styles.removeImage} onPress={() => setImageUri(null)} hitSlop={8}>
                       <Text style={styles.removeImageText}>✕</Text>
                     </Pressable>
                   </>
@@ -537,6 +560,7 @@ const styles = StyleSheet.create({
   templatePillTextActive: { color: Colors.gold },
 
   input: { backgroundColor: Colors.dark800, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 14, fontSize: 15, color: Colors.white, borderWidth: 1, borderColor: Colors.dark700, marginBottom: 10 },
+  inputFocused: { borderColor: Colors.gold },
   exerciseWrapper: { marginBottom: 8 },
   exerciseRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   exerciseName: { flex: 1, marginBottom: 0, flexShrink: 1 },

@@ -180,7 +180,7 @@ export default function HomeScreen() {
         <Text style={styles.titleText}>GAINS</Text>
         <View style={styles.titleAccent} />
       </View>
-      <Pressable style={styles.messagesButton} onPress={() => router.push("/(tabs)/messages")}>
+      <Pressable style={styles.messagesButton} onPress={() => router.push("/(tabs)/messages")} hitSlop={8}>
         <Text style={styles.messagesIcon}>💬</Text>
       </Pressable>
     </View>

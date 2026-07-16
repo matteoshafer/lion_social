@@ -169,9 +169,11 @@ export default function NotificationsScreen() {
           style={[
             styles.followBackButton,
             followingSet.has(item.actor.id) && styles.followBackButtonActive,
+            followLoadingSet.has(item.actor.id) && styles.followBackButtonLoading,
           ]}
           onPress={() => handleFollowBack(item.actor.id)}
           disabled={followLoadingSet.has(item.actor.id)}
+          hitSlop={8}
         >
           <Text style={[
             styles.followBackText,
@@ -195,7 +197,7 @@ export default function NotificationsScreen() {
         )}
       </View>
       {unreadCount > 0 && (
-        <Pressable onPress={markAllRead} style={styles.markReadButton}>
+        <Pressable onPress={markAllRead} style={styles.markReadButton} hitSlop={8}>
           <Text style={styles.markReadText}>Mark all read</Text>
         </Pressable>
       )}
@@ -260,6 +262,9 @@ export default function NotificationsScreen() {
         ListEmptyComponent={renderEmpty}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
+        removeClippedSubviews={true}
+        maxToRenderPerBatch={5}
+        windowSize={10}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -402,6 +407,9 @@ const styles = StyleSheet.create({
     backgroundColor: "transparent",
     borderWidth: 1,
     borderColor: Colors.gold,
+  },
+  followBackButtonLoading: {
+    opacity: 0.5,
   },
   followBackText: {
     fontSize: 13,

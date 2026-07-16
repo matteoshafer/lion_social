@@ -142,6 +142,7 @@ export default function MessagesScreen() {
   const [searchResults, setSearchResults] = useState<UserResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [searchFocused, setSearchFocused] = useState(false);
 
   const loadCurrentUser = useCallback(async () => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -302,7 +303,7 @@ export default function MessagesScreen() {
       {/* DM Search */}
       {activeTab === "dms" && (
         <View style={styles.searchContainer}>
-          <View style={styles.searchBar}>
+          <View style={[styles.searchBar, searchFocused && styles.searchBarFocused]}>
             <Text style={styles.searchIcon}>🔍</Text>
             <TextInput
               style={styles.searchInput}
@@ -310,10 +311,12 @@ export default function MessagesScreen() {
               placeholderTextColor={Colors.grayDark}
               value={searchQuery}
               onChangeText={setSearchQuery}
+              onFocus={() => setSearchFocused(true)}
+              onBlur={() => setSearchFocused(false)}
               selectionColor={Colors.gold}
             />
             {searchQuery.length > 0 && (
-              <Pressable onPress={() => setSearchQuery("")}>
+              <Pressable onPress={() => setSearchQuery("")} hitSlop={8}>
                 <Text style={styles.clearButton}>✕</Text>
               </Pressable>
             )}
@@ -327,6 +330,10 @@ export default function MessagesScreen() {
           renderItem={renderSearchResult}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.listContent}
+          keyboardShouldPersistTaps="handled"
+          removeClippedSubviews={true}
+          maxToRenderPerBatch={5}
+          windowSize={10}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <Text style={styles.emptyText}>No users found</Text>
@@ -344,6 +351,10 @@ export default function MessagesScreen() {
           keyExtractor={(item) => item.userId}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          removeClippedSubviews={true}
+          maxToRenderPerBatch={5}
+          windowSize={10}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh}
               tintColor={Colors.gold} colors={[Colors.gold]} progressBackgroundColor={Colors.dark800} />
@@ -363,6 +374,9 @@ export default function MessagesScreen() {
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
+          removeClippedSubviews={true}
+          maxToRenderPerBatch={5}
+          windowSize={10}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh}
               tintColor={Colors.gold} colors={[Colors.gold]} progressBackgroundColor={Colors.dark800} />
@@ -410,6 +424,7 @@ const styles = StyleSheet.create({
     borderRadius: 14, paddingHorizontal: 16, height: 48,
     borderWidth: 1, borderColor: Colors.dark700,
   },
+  searchBarFocused: { borderColor: Colors.gold },
   searchIcon: { fontSize: 16, marginRight: 10 },
   searchInput: { flex: 1, fontSize: 15, color: Colors.white },
   clearButton: { fontSize: 14, color: Colors.gray, padding: 4 },

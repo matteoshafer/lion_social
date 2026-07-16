@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import {
   View, Text, FlatList, TextInput, Pressable, KeyboardAvoidingView,
-  ActivityIndicator, Platform, StyleSheet,
+  ActivityIndicator, Platform, StyleSheet, Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -36,31 +36,43 @@ export default function MessageThreadScreen() {
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [inputFocused, setInputFocused] = useState(false);
 
   // Load current user + other user info
   useEffect(() => {
     async function init() {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
-
-      const { data: me } = await supabase
-        .from("User").select("id").eq("supabaseId", session.user.id).single();
-      if (!me) return;
-      setCurrentUserId((me as any).id);
-
-      const { data: other } = await supabase
+      const otherPromise = supabase
         .from("User")
         .select("id, username, displayName, avatarUrl")
         .eq("id", otherUserId)
-        .single();
-      if (other) {
-        setOtherUser({
-          id: (other as any).id,
-          username: (other as any).username,
-          displayName: (other as any).displayName || (other as any).username,
-          avatarUrl: (other as any).avatarUrl ?? null,
+        .single()
+        .then(({ data: other }) => {
+          if (other) {
+            setOtherUser({
+              id: (other as any).id,
+              username: (other as any).username,
+              displayName: (other as any).displayName || (other as any).username,
+              avatarUrl: (other as any).avatarUrl ?? null,
+            });
+          }
         });
+
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        await otherPromise;
+        setLoading(false);
+        return;
       }
+
+      const { data: me } = await supabase
+        .from("User").select("id").eq("supabaseId", session.user.id).single();
+      if (!me) {
+        await otherPromise;
+        setLoading(false);
+        return;
+      }
+      setCurrentUserId((me as any).id);
+      await otherPromise;
     }
     init();
   }, [otherUserId]);
@@ -129,7 +141,11 @@ export default function MessageThreadScreen() {
 
   const handleSend = async () => {
     const content = text.trim();
-    if (!content || !currentUserId || sending) return;
+    if (!content || sending) return;
+    if (!currentUserId) {
+      Alert.alert("Sign in required", "Sign in to send messages.");
+      return;
+    }
     setText("");
     setSending(true);
 
@@ -155,6 +171,7 @@ export default function MessageThreadScreen() {
     if (error) {
       setMessages((prev) => prev.filter((m) => m.id !== msgId));
       setText(content);
+      Alert.alert("Message not sent", "Something went wrong. Please try again.");
     } else {
       setMessages((prev) => prev.map((m) => m.id === msgId ? (data as Message) : m));
     }
@@ -200,7 +217,7 @@ export default function MessageThreadScreen() {
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
       {/* Header */}
       <View style={styles.header}>
-        <Pressable style={styles.backButton} onPress={() => router.back()}>
+        <Pressable style={styles.backButton} onPress={() => router.back()} hitSlop={12}>
           <Text style={styles.backIcon}>←</Text>
         </Pressable>
         <Avatar uri={otherUser?.avatarUrl ?? null} name={otherUser?.displayName ?? ""} size={36} />
@@ -223,6 +240,7 @@ export default function MessageThreadScreen() {
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.messagesList}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
           onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: false })}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
@@ -235,16 +253,16 @@ export default function MessageThreadScreen() {
         {/* Input */}
         <View style={styles.inputRow}>
           <TextInput
-            style={styles.input}
+            style={[styles.input, inputFocused && styles.inputFocused]}
             value={text}
             onChangeText={setText}
+            onFocus={() => setInputFocused(true)}
+            onBlur={() => setInputFocused(false)}
             placeholder="Message..."
             placeholderTextColor={Colors.grayDark}
             multiline
             maxLength={1000}
             selectionColor={Colors.gold}
-            returnKeyType="send"
-            onSubmitEditing={handleSend}
           />
           <Pressable
             style={[styles.sendButton, (!text.trim() || sending) && styles.sendButtonDisabled]}
@@ -306,6 +324,7 @@ const styles = StyleSheet.create({
     color: Colors.white, maxHeight: 120,
     borderWidth: 1, borderColor: Colors.dark700,
   },
+  inputFocused: { borderColor: Colors.gold },
   sendButton: {
     width: 40, height: 40, borderRadius: 20,
     backgroundColor: Colors.gold, alignItems: "center", justifyContent: "center",

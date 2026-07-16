@@ -113,10 +113,19 @@ export default function FollowListScreen() {
             />
           }
           ItemSeparatorComponent={() => <View style={styles.separator} />}
+          removeClippedSubviews={true}
+          maxToRenderPerBatch={5}
+          windowSize={10}
           ListEmptyComponent={
             <View style={styles.center}>
-              <Text style={styles.emptyText}>
+              <Text style={styles.emptyIcon}>{listType === "followers" ? "👥" : "🔭"}</Text>
+              <Text style={styles.emptyTitle}>
                 {listType === "followers" ? "No followers yet" : "Not following anyone yet"}
+              </Text>
+              <Text style={styles.emptyText}>
+                {listType === "followers"
+                  ? "Share great posts and followers will come"
+                  : "Explore the community to find people to follow"}
               </Text>
             </View>
           }
@@ -137,9 +146,11 @@ const styles = StyleSheet.create({
   backButton: { width: 36, alignItems: "center" },
   backIcon: { fontSize: 22, color: Colors.gold, fontWeight: "600" },
   headerTitle: { fontSize: 17, fontWeight: "700", color: Colors.white },
-  center: { flex: 1, alignItems: "center", justifyContent: "center" },
+  center: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 40 },
   emptyContainer: { flex: 1 },
-  emptyText: { fontSize: 15, color: Colors.gray },
+  emptyIcon: { fontSize: 48, marginBottom: 16 },
+  emptyTitle: { fontSize: 20, fontWeight: "700", color: Colors.white, marginBottom: 8 },
+  emptyText: { fontSize: 14, color: Colors.gray, textAlign: "center", lineHeight: 21 },
   row: {
     flexDirection: "row", alignItems: "center",
     paddingHorizontal: 16, paddingVertical: 14, gap: 12,

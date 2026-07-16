@@ -15,6 +15,7 @@ export default function ResetPasswordScreen() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [focusedField, setFocusedField] = useState<string | null>(null);
 
   // The client uses PKCE with detectSessionInUrl disabled, so the recovery
   // link arrives as gains://reset-password?code=... and we must exchange the
@@ -88,16 +89,18 @@ export default function ResetPasswordScreen() {
               <Text style={styles.inputLabel}>NEW PASSWORD</Text>
               <View style={styles.passwordRow}>
                 <TextInput
-                  style={[styles.input, styles.passwordInput]}
+                  style={[styles.input, styles.passwordInput, focusedField === "new" && styles.inputFocused]}
                   value={newPassword}
                   onChangeText={setNewPassword}
+                  onFocus={() => setFocusedField("new")}
+                  onBlur={() => setFocusedField(null)}
                   placeholder="••••••••"
                   placeholderTextColor={Colors.grayDark}
                   secureTextEntry={!showPassword}
                   autoCapitalize="none"
                   selectionColor={Colors.gold}
                 />
-                <Pressable style={styles.eyeButton} onPress={() => setShowPassword(!showPassword)}>
+                <Pressable style={[styles.eyeButton, focusedField === "new" && styles.inputFocused]} onPress={() => setShowPassword(!showPassword)} hitSlop={8}>
                   <Text style={styles.eyeIcon}>{showPassword ? "🙈" : "👁"}</Text>
                 </Pressable>
               </View>
@@ -106,9 +109,11 @@ export default function ResetPasswordScreen() {
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>CONFIRM PASSWORD</Text>
               <TextInput
-                style={styles.input}
+                style={[styles.input, focusedField === "confirm" && styles.inputFocused]}
                 value={confirmPassword}
                 onChangeText={setConfirmPassword}
+                onFocus={() => setFocusedField("confirm")}
+                onBlur={() => setFocusedField(null)}
                 placeholder="••••••••"
                 placeholderTextColor={Colors.grayDark}
                 secureTextEntry={!showPassword}
@@ -156,6 +161,7 @@ const styles = StyleSheet.create({
     paddingVertical: 16, fontSize: 15, color: Colors.white,
     borderWidth: 1, borderColor: Colors.dark700,
   },
+  inputFocused: { borderColor: Colors.gold },
   passwordRow: { flexDirection: "row", alignItems: "center" },
   passwordInput: { flex: 1, borderTopRightRadius: 0, borderBottomRightRadius: 0, borderRightWidth: 0 },
   eyeButton: {
@@ -171,6 +177,6 @@ const styles = StyleSheet.create({
     shadowColor: Colors.gold, shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3, shadowRadius: 12, elevation: 8,
   },
-  buttonDisabled: { opacity: 0.7 },
+  buttonDisabled: { opacity: 0.5 },
   primaryButtonText: { fontSize: 16, fontWeight: "800", color: Colors.black, letterSpacing: 1.5 },
 });

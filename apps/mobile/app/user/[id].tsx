@@ -376,7 +376,7 @@ export default function UserProfileScreen() {
           {!isOwnProfile && (
             <View style={styles.actionRow}>
               <Pressable
-                style={[styles.followButton, isFollowing && styles.followingButton]}
+                style={[styles.followButton, isFollowing && styles.followingButton, followLoading && styles.followButtonLoading]}
                 onPress={handleFollow}
                 disabled={followLoading}
               >
@@ -508,6 +508,7 @@ const styles = StyleSheet.create({
   messageButtonText: { fontSize: 15, fontWeight: "700", color: Colors.gold, letterSpacing: 0.5 },
   followButtonText: { fontSize: 15, fontWeight: "700", color: Colors.black, letterSpacing: 0.5 },
   followingButton: { backgroundColor: Colors.dark800, borderWidth: 1, borderColor: Colors.dark600 },
+  followButtonLoading: { opacity: 0.5 },
   followingButtonText: { color: Colors.white },
   editButton: {
     width: "100%", backgroundColor: Colors.gold,

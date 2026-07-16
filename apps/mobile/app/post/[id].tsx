@@ -12,6 +12,7 @@ import {
   Platform,
   ActivityIndicator,
   Animated,
+  Alert,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -43,6 +44,7 @@ type PostData = {
 
 type CommentItem = {
   id: string;
+  userId: string | null;
   username: string;
   avatarUrl: string | null;
   text: string;
@@ -55,6 +57,7 @@ export default function PostDetailScreen() {
   const [post, setPost] = useState<PostData | null>(null);
   const [loading, setLoading] = useState(true);
   const [commentText, setCommentText] = useState("");
+  const [inputFocused, setInputFocused] = useState(false);
   const [isLiked, setIsLiked] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
   const [likesCount, setLikesCount] = useState(0);
@@ -123,6 +126,7 @@ export default function PostDetailScreen() {
     setLocalComments(
       (data as any[]).map((c) => ({
         id: c.id,
+        userId: c.User.id ?? null,
         username: c.User.username,
         avatarUrl: c.User.avatarUrl ?? null,
         text: c.content,
@@ -230,18 +234,21 @@ export default function PostDetailScreen() {
   const handleCommentSubmit = useCallback(async () => {
     const text = commentText.trim();
     if (!text) return;
+    if (!appUserId) {
+      Alert.alert("Sign in required", "Sign in to join the conversation.");
+      return;
+    }
     setCommentText("");
 
     const tempComment: CommentItem = {
       id: `temp-${Date.now()}`,
+      userId: appUserId,
       username: currentUsername,
       avatarUrl: null,
       text,
       createdAt: new Date().toISOString(),
     };
     setLocalComments((prev) => [...prev, tempComment]);
-
-    if (!appUserId) return;
 
     const now = new Date().toISOString();
     const { error } = await supabase
@@ -252,6 +259,7 @@ export default function PostDetailScreen() {
       console.error("[PostDetail] Comment insert error:", error.message);
       setLocalComments((prev) => prev.filter((c) => c.id !== tempComment.id));
       setCommentText(text);
+      Alert.alert("Couldn't post comment", "Something went wrong. Please try again.");
     }
   }, [commentText, appUserId, id, currentUsername]);
 
@@ -266,7 +274,15 @@ export default function PostDetailScreen() {
           <View style={styles.backButton} />
         </View>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={Colors.gold} />
+          {loading ? (
+            <ActivityIndicator size="large" color={Colors.gold} />
+          ) : (
+            <>
+              <Text style={styles.notFoundIcon}>🔍</Text>
+              <Text style={styles.notFoundTitle}>Post not found</Text>
+              <Text style={styles.notFoundSubtitle}>It may have been deleted</Text>
+            </>
+          )}
         </View>
       </SafeAreaView>
     );
@@ -335,7 +351,7 @@ export default function PostDetailScreen() {
           {/* Action row */}
           <View style={styles.actionRow}>
             <View style={styles.actionLeft}>
-              <Pressable onPress={handleLike} style={styles.actionButton}>
+              <Pressable onPress={handleLike} style={styles.actionButton} hitSlop={8}>
                 <Text style={[styles.actionIcon, isLiked && styles.actionIconLiked]}>
                   {isLiked ? "♥" : "♡"}
                 </Text>
@@ -349,10 +365,10 @@ export default function PostDetailScreen() {
               </View>
             </View>
             <View style={styles.actionRight}>
-              <Pressable style={styles.actionButton} onPress={handleShare}>
+              <Pressable style={styles.actionButton} onPress={handleShare} hitSlop={8}>
                 <Text style={styles.actionIcon}>↗</Text>
               </Pressable>
-              <Pressable style={[styles.actionButton, isSaved && styles.actionButtonSaved]} onPress={handleSave}>
+              <Pressable style={[styles.actionButton, isSaved && styles.actionButtonSaved]} onPress={handleSave} hitSlop={8}>
                 <Text style={styles.actionIcon}>🔖</Text>
               </Pressable>
             </View>
@@ -370,9 +386,16 @@ export default function PostDetailScreen() {
 
           {localComments.map((c) => (
             <View key={c.id} style={styles.commentRow}>
-              <Avatar uri={c.avatarUrl} name={c.username} size={36} />
+              <Pressable
+                onPress={() => c.userId && router.push(`/user/${c.userId}`)}
+                hitSlop={8}
+              >
+                <Avatar uri={c.avatarUrl} name={c.username} size={36} />
+              </Pressable>
               <View style={styles.commentBubble}>
-                <Text style={styles.commentUsername}>{c.username}</Text>
+                <Pressable onPress={() => c.userId && router.push(`/user/${c.userId}`)} hitSlop={4}>
+                  <Text style={styles.commentUsername}>{c.username}</Text>
+                </Pressable>
                 <Text style={styles.commentText}>{c.text}</Text>
                 <Text style={styles.commentTime}>{getRelativeTime(c.createdAt)}</Text>
               </View>
@@ -385,17 +408,20 @@ export default function PostDetailScreen() {
         {/* Comment input */}
         <View style={styles.commentInputRow}>
           <TextInput
-            style={styles.commentInput}
+            style={[styles.commentInput, inputFocused && styles.commentInputFocused]}
             placeholder="Add a comment…"
             placeholderTextColor={Colors.grayDark}
             value={commentText}
             onChangeText={setCommentText}
+            onFocus={() => setInputFocused(true)}
+            onBlur={() => setInputFocused(false)}
             multiline={false}
             returnKeyType="send"
             onSubmitEditing={handleCommentSubmit}
+            selectionColor={Colors.gold}
           />
           {commentText.trim().length > 0 && (
-            <Pressable style={styles.sendButton} onPress={handleCommentSubmit}>
+            <Pressable style={styles.sendButton} onPress={handleCommentSubmit} hitSlop={8}>
               <Text style={styles.sendText}>Post</Text>
             </Pressable>
           )}
@@ -415,7 +441,11 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
+    paddingHorizontal: 40,
   },
+  notFoundIcon: { fontSize: 48, marginBottom: 16 },
+  notFoundTitle: { fontSize: 20, fontWeight: "700", color: Colors.white, marginBottom: 8 },
+  notFoundSubtitle: { fontSize: 14, color: Colors.gray, textAlign: "center" },
   scrollContent: {
     paddingBottom: 20,
   },
@@ -621,6 +651,10 @@ const styles = StyleSheet.create({
     color: Colors.white,
     borderWidth: 0.5,
     borderColor: Colors.dark700,
+  },
+  commentInputFocused: {
+    borderWidth: 1,
+    borderColor: Colors.gold,
   },
   sendButton: {
     paddingHorizontal: 14,

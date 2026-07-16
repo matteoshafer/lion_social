@@ -17,6 +17,7 @@ export default function SignUpScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
+  const [focusedField, setFocusedField] = useState<string | null>(null);
 
   const handleSignUp = async () => {
     if (!email.trim() || !username.trim() || !password) {
@@ -65,7 +66,14 @@ export default function SignUpScreen() {
         return;
       }
 
-      // Show "check your email" screen
+      // If email confirmation is disabled, Supabase returns a session
+      // immediately — go straight into the app.
+      if (authData.session) {
+        router.replace("/(tabs)");
+        return;
+      }
+
+      // Otherwise show the "check your email" screen
       setEmailSent(true);
     } catch {
       Alert.alert("Error", "Something went wrong. Please try again.");
@@ -122,9 +130,11 @@ export default function SignUpScreen() {
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>EMAIL</Text>
               <TextInput
-                style={styles.input}
+                style={[styles.input, focusedField === "email" && styles.inputFocused]}
                 value={email}
                 onChangeText={setEmail}
+                onFocus={() => setFocusedField("email")}
+                onBlur={() => setFocusedField(null)}
                 placeholder="you@example.com"
                 placeholderTextColor={Colors.grayDark}
                 keyboardType="email-address"
@@ -137,9 +147,11 @@ export default function SignUpScreen() {
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>USERNAME</Text>
               <TextInput
-                style={styles.input}
+                style={[styles.input, focusedField === "username" && styles.inputFocused]}
                 value={username}
                 onChangeText={(t) => setUsername(t.toLowerCase().replace(/[^a-z0-9_]/g, ""))}
+                onFocus={() => setFocusedField("username")}
+                onBlur={() => setFocusedField(null)}
                 placeholder="your_handle"
                 placeholderTextColor={Colors.grayDark}
                 autoCapitalize="none"
@@ -152,9 +164,11 @@ export default function SignUpScreen() {
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>DISPLAY NAME (OPTIONAL)</Text>
               <TextInput
-                style={styles.input}
+                style={[styles.input, focusedField === "displayName" && styles.inputFocused]}
                 value={displayName}
                 onChangeText={setDisplayName}
+                onFocus={() => setFocusedField("displayName")}
+                onBlur={() => setFocusedField(null)}
                 placeholder="Your Name"
                 placeholderTextColor={Colors.grayDark}
                 maxLength={50}
@@ -166,16 +180,18 @@ export default function SignUpScreen() {
               <Text style={styles.inputLabel}>PASSWORD</Text>
               <View style={styles.passwordRow}>
                 <TextInput
-                  style={[styles.input, styles.passwordInput]}
+                  style={[styles.input, styles.passwordInput, focusedField === "password" && styles.inputFocused]}
                   value={password}
                   onChangeText={setPassword}
+                  onFocus={() => setFocusedField("password")}
+                  onBlur={() => setFocusedField(null)}
                   placeholder="Min. 6 characters"
                   placeholderTextColor={Colors.grayDark}
                   secureTextEntry={!showPassword}
                   autoCapitalize="none"
                   selectionColor={Colors.gold}
                 />
-                <Pressable style={styles.eyeButton} onPress={() => setShowPassword(!showPassword)}>
+                <Pressable style={[styles.eyeButton, focusedField === "password" && styles.eyeButtonFocused]} onPress={() => setShowPassword(!showPassword)} hitSlop={8}>
                   <Text style={styles.eyeIcon}>{showPassword ? "🙈" : "👁"}</Text>
                 </Pressable>
               </View>
@@ -227,6 +243,7 @@ const styles = StyleSheet.create({
     paddingVertical: 16, fontSize: 15, color: Colors.white,
     borderWidth: 1, borderColor: Colors.dark700,
   },
+  inputFocused: { borderColor: Colors.gold },
   passwordRow: { flexDirection: "row", alignItems: "center" },
   passwordInput: { flex: 1, borderTopRightRadius: 0, borderBottomRightRadius: 0, borderRightWidth: 0 },
   eyeButton: {
@@ -234,6 +251,7 @@ const styles = StyleSheet.create({
     borderColor: Colors.dark700, paddingHorizontal: 16, paddingVertical: 16,
     borderTopRightRadius: 14, borderBottomRightRadius: 14,
   },
+  eyeButtonFocused: { borderColor: Colors.gold },
   eyeIcon: { fontSize: 16 },
 
   signUpButton: {
@@ -242,7 +260,7 @@ const styles = StyleSheet.create({
     shadowColor: Colors.gold, shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3, shadowRadius: 12, elevation: 8,
   },
-  buttonDisabled: { opacity: 0.7 },
+  buttonDisabled: { opacity: 0.5 },
   signUpButtonText: { fontSize: 16, fontWeight: "800", color: Colors.black, letterSpacing: 1.5 },
 
   signInLink: { alignItems: "center", marginTop: 24 },

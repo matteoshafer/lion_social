@@ -14,6 +14,7 @@ export default function SignInScreen() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [focusedField, setFocusedField] = useState<string | null>(null);
 
   const handleSignIn = async () => {
     if (!identifier.trim() || !password) {
@@ -74,9 +75,11 @@ export default function SignInScreen() {
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>EMAIL OR USERNAME</Text>
               <TextInput
-                style={styles.input}
+                style={[styles.input, focusedField === "identifier" && styles.inputFocused]}
                 value={identifier}
                 onChangeText={setIdentifier}
+                onFocus={() => setFocusedField("identifier")}
+                onBlur={() => setFocusedField(null)}
                 placeholder="you@example.com or your_handle"
                 placeholderTextColor={Colors.grayDark}
                 keyboardType="email-address"
@@ -90,16 +93,18 @@ export default function SignInScreen() {
               <Text style={styles.inputLabel}>PASSWORD</Text>
               <View style={styles.passwordRow}>
                 <TextInput
-                  style={[styles.input, styles.passwordInput]}
+                  style={[styles.input, styles.passwordInput, focusedField === "password" && styles.inputFocused]}
                   value={password}
                   onChangeText={setPassword}
+                  onFocus={() => setFocusedField("password")}
+                  onBlur={() => setFocusedField(null)}
                   placeholder="••••••••"
                   placeholderTextColor={Colors.grayDark}
                   secureTextEntry={!showPassword}
                   autoCapitalize="none"
                   selectionColor={Colors.gold}
                 />
-                <Pressable style={styles.eyeButton} onPress={() => setShowPassword(!showPassword)}>
+                <Pressable style={[styles.eyeButton, focusedField === "password" && styles.eyeButtonFocused]} onPress={() => setShowPassword(!showPassword)} hitSlop={8}>
                   <Text style={styles.eyeIcon}>{showPassword ? "🙈" : "👁"}</Text>
                 </Pressable>
               </View>
@@ -161,6 +166,7 @@ const styles = StyleSheet.create({
     paddingVertical: 16, fontSize: 15, color: Colors.white,
     borderWidth: 1, borderColor: Colors.dark700,
   },
+  inputFocused: { borderColor: Colors.gold },
   passwordRow: { flexDirection: "row", alignItems: "center" },
   passwordInput: { flex: 1, borderTopRightRadius: 0, borderBottomRightRadius: 0, borderRightWidth: 0 },
   eyeButton: {
@@ -168,6 +174,7 @@ const styles = StyleSheet.create({
     borderColor: Colors.dark700, paddingHorizontal: 16, paddingVertical: 16,
     borderTopRightRadius: 14, borderBottomRightRadius: 14,
   },
+  eyeButtonFocused: { borderColor: Colors.gold },
   eyeIcon: { fontSize: 16 },
 
   forgotBtn: { alignSelf: 'flex-end', marginTop: 6, marginBottom: 16 },
@@ -179,7 +186,7 @@ const styles = StyleSheet.create({
     shadowColor: Colors.gold, shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3, shadowRadius: 12, elevation: 8,
   },
-  buttonDisabled: { opacity: 0.7 },
+  buttonDisabled: { opacity: 0.5 },
   signInButtonText: { fontSize: 16, fontWeight: "800", color: Colors.black, letterSpacing: 1.5 },
 
   divider: { flexDirection: "row", alignItems: "center", marginVertical: 24, gap: 12 },

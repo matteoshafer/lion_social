@@ -80,6 +80,7 @@ export default function ExploreScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [appUserId, setAppUserId] = useState<string | null>(null);
   const [userResults, setUserResults] = useState<UserSearchResult[]>([]);
+  const [searchFocused, setSearchFocused] = useState(false);
   const lastTapRef = useRef<Map<string, number>>(new Map());
 
   // Live user search: debounce 300ms, prefix-match on username
@@ -235,6 +236,7 @@ export default function ExploreScreen() {
     <SafeAreaView style={styles.container} edges={["top"]}>
       <ScrollView
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -252,7 +254,7 @@ export default function ExploreScreen() {
 
         {/* Search Bar */}
         <View style={styles.searchContainer}>
-          <View style={styles.searchBar}>
+          <View style={[styles.searchBar, searchFocused && styles.searchBarFocused]}>
             <Text style={styles.searchIcon}>🔍</Text>
             <TextInput
               style={styles.searchInput}
@@ -260,10 +262,12 @@ export default function ExploreScreen() {
               placeholderTextColor={Colors.grayDark}
               value={searchQuery}
               onChangeText={setSearchQuery}
+              onFocus={() => setSearchFocused(true)}
+              onBlur={() => setSearchFocused(false)}
               selectionColor={Colors.gold}
             />
             {searchQuery.length > 0 && (
-              <Pressable onPress={() => setSearchQuery("")}>
+              <Pressable onPress={() => setSearchQuery("")} hitSlop={8}>
                 <Text style={styles.clearButton}>✕</Text>
               </Pressable>
             )}
@@ -395,6 +399,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.dark700,
   },
+  searchBarFocused: { borderColor: Colors.gold },
   searchIcon: { fontSize: 16, marginRight: 10 },
   searchInput: { flex: 1, fontSize: 15, color: Colors.white, height: 48 },
   clearButton: { fontSize: 14, color: Colors.gray, padding: 4 },

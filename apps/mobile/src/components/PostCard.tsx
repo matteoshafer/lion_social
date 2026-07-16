@@ -305,19 +305,19 @@ export default function PostCard({ post, currentUserId, onBlock, onDelete }: Pos
       {/* Action Row */}
       <View style={styles.actionRow}>
         <View style={styles.actionLeft}>
-          <Pressable onPress={handleLike} style={styles.actionButton}>
+          <Pressable onPress={handleLike} style={styles.actionButton} hitSlop={8}>
             <Text style={[styles.actionIcon, isLiked && styles.actionIconLiked]}>{isLiked ? "♥" : "♡"}</Text>
             <Text style={[styles.actionCount, isLiked && styles.actionCountLiked]}>{formatCount(likesCount)}</Text>
           </Pressable>
-          <Pressable style={styles.actionButton} onPress={() => router.push(`/post/${post.id}`)}>
+          <Pressable style={styles.actionButton} onPress={() => router.push(`/post/${post.id}`)} hitSlop={8}>
             <Text style={styles.actionIcon}>💬</Text>
             <Text style={styles.actionCount}>{formatCount(post.commentsCount)}</Text>
           </Pressable>
-          <Pressable style={styles.actionButton} onPress={handleShare}>
+          <Pressable style={styles.actionButton} onPress={handleShare} hitSlop={8}>
             <Text style={styles.actionIcon}>↗</Text>
           </Pressable>
         </View>
-        <Pressable style={[styles.actionButton, isSaved && styles.actionButtonSaved]} onPress={handleSave}>
+        <Pressable style={[styles.actionButton, isSaved && styles.actionButtonSaved]} onPress={handleSave} hitSlop={8}>
           <Text style={styles.actionIcon}>🔖</Text>
         </Pressable>
       </View>

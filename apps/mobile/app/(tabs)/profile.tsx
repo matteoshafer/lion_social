@@ -87,6 +87,52 @@ async function fetchProfile(): Promise<ProfileData | null> {
   return fetchProfileForUser(appUser as any);
 }
 
+async function fetchSavedPosts(userId: string): Promise<MockPost[]> {
+  const { data, error } = await supabase
+    .from("Save")
+    .select(`
+      id, createdAt,
+      Post (
+        id, caption, imageUrl, type, createdAt, userId,
+        User (id, username, avatarUrl),
+        Like (id),
+        Comment (id)
+      )
+    `)
+    .eq("userId", userId)
+    .order("createdAt", { ascending: false });
+
+  if (error || !data) return [];
+
+  return (data as any[])
+    .filter((s) => s.Post)
+    .map((s) => {
+      const p = s.Post;
+      return {
+        id: p.id,
+        userId: p.userId,
+        user: {
+          id: p.User?.id ?? p.userId,
+          username: p.User?.username ?? "user",
+          displayName: p.User?.username ?? "user",
+          avatarUrl: p.User?.avatarUrl ?? null,
+          bio: "",
+          followersCount: 0,
+          followingCount: 0,
+          postsCount: 0,
+          isVerified: false,
+        },
+        type: p.type as MockPost["type"],
+        caption: p.caption,
+        imageUrl: p.imageUrl ?? null,
+        likesCount: (p.Like ?? []).length,
+        commentsCount: (p.Comment ?? []).length,
+        isLiked: false,
+        createdAt: p.createdAt,
+      };
+    });
+}
+
 async function fetchProfileForUser(u: any): Promise<ProfileData | null> {
   const [followersRes, followingRes, referralRes] = await Promise.all([
     supabase.from("Follow").select("id", { count: "exact", head: true }).eq("followingId", u.id),
@@ -146,6 +192,8 @@ export default function ProfileScreen() {
   const [userPosts, setUserPosts] = useState<MockPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [savedPosts, setSavedPosts] = useState<MockPost[]>([]);
+  const [savedLoading, setSavedLoading] = useState(false);
   const [referralCode, setReferralCode] = useState<string | null>(null);
   const [editingCode, setEditingCode] = useState(false);
   const [codeDraft, setCodeDraft] = useState("");
@@ -164,11 +212,25 @@ export default function ProfileScreen() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Load saved posts when the Saved tab is opened
+  useEffect(() => {
+    if (activeTab !== "saved" || !currentUser) return;
+    let cancelled = false;
+    setSavedLoading(true);
+    fetchSavedPosts(currentUser.id).then((posts) => {
+      if (!cancelled) { setSavedPosts(posts); setSavedLoading(false); }
+    });
+    return () => { cancelled = true; };
+  }, [activeTab, currentUser]);
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await load();
+    if (activeTab === "saved" && currentUser) {
+      setSavedPosts(await fetchSavedPosts(currentUser.id));
+    }
     setRefreshing(false);
-  }, [load]);
+  }, [load, activeTab, currentUser]);
 
   const handleCopyCode = useCallback(() => {
     if (!referralCode) return;
@@ -229,7 +291,7 @@ export default function ProfileScreen() {
     setSavingCode(false);
   }, [currentUser, savingCode, codeDraft, referralCode]);
 
-  const displayPosts = activeTab === "posts" ? userPosts : [];
+  const displayPosts = activeTab === "posts" ? userPosts : savedPosts;
 
   if (loading) {
     return (
@@ -244,9 +306,15 @@ export default function ProfileScreen() {
   if (!currentUser) {
     return (
       <SafeAreaView style={styles.container} edges={["top"]}>
-        <View style={styles.loadingContainer}>
-          <Text style={styles.emptyTitle}>Not logged in</Text>
-
+        <View style={[styles.loadingContainer, { paddingHorizontal: 40 }]}>
+          <Text style={styles.emptyIcon}>👤</Text>
+          <Text style={styles.emptyTitle}>Not signed in</Text>
+          <Text style={[styles.emptySubtitle, { marginBottom: 24 }]}>
+            Sign in to see your profile, posts, and followers
+          </Text>
+          <Pressable style={styles.signInCta} onPress={() => router.push("/(auth)/sign-in")}>
+            <Text style={styles.signInCtaText}>Sign In</Text>
+          </Pressable>
         </View>
       </SafeAreaView>
     );
@@ -269,7 +337,7 @@ export default function ProfileScreen() {
         {/* Header Bar */}
         <View style={styles.headerBar}>
           <Text style={styles.username}>@{currentUser.username}</Text>
-          <Pressable style={styles.settingsButton} onPress={() => router.push("/edit-profile")}>
+          <Pressable style={styles.settingsButton} onPress={() => router.push("/edit-profile")} hitSlop={8}>
             <Text style={styles.settingsIcon}>⚙️</Text>
           </Pressable>
         </View>
@@ -376,7 +444,11 @@ export default function ProfileScreen() {
         </View>
 
         {/* Post Grid */}
-        {displayPosts.length > 0 ? (
+        {activeTab === "saved" && savedLoading ? (
+          <View style={styles.emptyGrid}>
+            <ActivityIndicator size="large" color={Colors.gold} />
+          </View>
+        ) : displayPosts.length > 0 ? (
           <View style={styles.gridContainer}>
             {displayPosts.map((post, index) => (
               <Pressable
@@ -520,4 +592,9 @@ const styles = StyleSheet.create({
   emptyIcon: { fontSize: 48, marginBottom: 16 },
   emptyTitle: { fontSize: 20, fontWeight: "700", color: Colors.white, marginBottom: 8 },
   emptySubtitle: { fontSize: 14, color: Colors.gray, textAlign: "center", lineHeight: 21 },
+  signInCta: {
+    backgroundColor: Colors.gold, borderRadius: 14,
+    paddingVertical: 14, paddingHorizontal: 40,
+  },
+  signInCtaText: { fontSize: 15, fontWeight: "700", color: Colors.black, letterSpacing: 0.5 },
 });
